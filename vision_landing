@@ -199,7 +199,7 @@ while True:
         except:
             pass
 
-    if (vehicle.rangefinder.distance > 0 and vehicle.rangefinder.distance <= 0.1) or vehicle.location.global_relative_frame.alt <= 0.1:
+    if (args.simulator and vehicle.rangefinder.distance > 0 and vehicle.rangefinder.distance <= 0.1) or vehicle.location.global_relative_frame.alt <= 0.1:
         print "Landed"
         break
 
