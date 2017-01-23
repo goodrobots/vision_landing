@@ -1,0 +1,205 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+# vision_landing
+# https://github.com/fnoop/vision_landing
+#
+# This python script connects to arducopter using dronekit, to control precision landing.
+# The control is purely visual using pose estimation from fiducial markers (eg. aruco or april tags), no additional rangefinder is needed.
+# It launches a separate program track_targets which does the actual cv work and captures the resulting vectors from non-blocking thread handler.
+#
+# Examples:
+# ./vision_landing /dev/ttyS0 0.235 calibration/ocam5cr-calibration-640x480.yml
+# ./vision_landing --simulator --input /dev/video2 --output "appsrc ! autovideoconvert ! v4l2video11h264enc ! h264parse ! rtph264pay config-interval=1 pt=96 ! udpsink host=192.168.1.70 port=5000 snc=false" --markerdict TAG36h11 tcp:localhost:5777 0.235 calibration/ocam5cr-calibration-640x480.yml
+
+from threading import Thread, Event
+from Queue import Queue, Empty
+from subprocess import Popen, PIPE
+from dronekit import connect, VehicleMode, LocationGlobal, LocationGlobalRelative
+from pymavlink import mavutil
+from time import sleep
+from sys import exit
+
+# Define threaded reader class
+class ThreadedReader:
+    def __init__(self, stdout):
+        self.stdout = stdout
+        self.queue = Queue()
+        self.stop = Event()
+        def insertQueue(stdout, queue):
+            while True:
+                line = stdout.readline()
+                if line:
+                    queue.put(line)
+                else:
+                    pass
+        self.thread = Thread(target = insertQueue, args = (self.stdout, self.queue))
+        self.thread.daemon = True
+        self.thread.start()
+    def readline(self, timeout = None):
+        try:
+            return self.queue.get(block = timeout is not None, timeout = timeout)
+        except Empty:
+            return None
+    def clear(self):
+        with self.queue.mutex:
+            self.queue.queue.clear()
+    def close(self):
+        self.stop.set()
+
+# Configure argument parsing
+import argparse  
+parser = argparse.ArgumentParser(description='Vision based precision landing')
+parser.add_argument('connectstring', help="dronekit vehicle connection target string, eg. /dev/ttyS0, tcp:localhost:5770, udp:localhost:14560")
+parser.add_argument('markersize', help="Target marker size, in meters, required")
+parser.add_argument('calibration', help="camera calibration data, required")
+parser.add_argument('--input', '-i', default="/dev/video0", help="camera input, defaults to /dev/video0")
+parser.add_argument('--output', '-o', help="gstreamer output pipeline, defaults to none")
+parser.add_argument('--markerdict', '-d', default="ARUCO_MIP_36h12", help="Target marker dictionary, defaults to ARUCO_MIP_36h12")
+parser.add_argument('--markerid', '-id', help="Target ID (optional, if not specified will use closest target)")
+parser.add_argument('--simulator', '-s', action='store_true', help="Perform initial simulator actions for testing, takeoff and initiate land")
+args = parser.parse_args()
+
+# Run the vision tracker as a thread
+try:
+    # Define the basic arguments to track_targets
+    track_arguments = ['./track_targets']
+    # If marker dictionary is set, pass it through
+    if args.markerdict:
+        track_arguments.extend(['-d', args.markerdict])
+    # If output is set, pass it through
+    if args.output:
+        track_arguments.extend(['-o', args.output])
+    # If marker id is set, pass it through
+    if args.markerid:
+        track_arguments.extend(['-i', args.markerid])
+    # Add positional arguments
+    track_arguments.extend([args.input, args.calibration, args.markersize])
+    # Start the tracker and attach the output to threaded reader
+    print "Starting track_targets with arguments:",track_arguments
+    track_targets = Popen(track_arguments, stdin = PIPE, stdout = PIPE, stderr = PIPE, shell = False)
+    treader = ThreadedReader(track_targets.stdout)
+except Exception as error:
+    print "Error starting track_targets:", error
+    exit(1)
+    
+# Define function that arms and takes off, used for testing in SITL
+# Lifted from dronekit-python examples
+def arm_and_takeoff(aTargetAltitude):
+    """
+    Arms vehicle and fly to aTargetAltitude.
+    """
+
+    print "Basic pre-arm checks"
+    # Don't let the user try to arm until autopilot is ready
+    while not vehicle.is_armable:
+        print " Waiting for vehicle to initialise..."
+        sleep(1)
+
+        
+    print "Arming motors"
+    # Copter should arm in GUIDED mode
+    vehicle.mode = VehicleMode("GUIDED")
+    vehicle.armed = True
+
+    while not vehicle.armed:      
+        print " Waiting for arming..."
+        sleep(1)
+
+    print "Taking off!"
+    vehicle.simple_takeoff(aTargetAltitude) # Take off to target altitude
+
+    # Wait until the vehicle reaches a safe height before processing the goto (otherwise the command 
+    #  after Vehicle.simple_takeoff will execute immediately).
+    while True:
+        print " Altitude: ", vehicle.location.global_relative_frame.alt      
+        if vehicle.location.global_relative_frame.alt>=aTargetAltitude*0.95: #Trigger just below target alt.
+            print "Reached target altitude"
+            break
+        sleep(1)
+
+# Define function to send distance_message mavlink message for mavlink based rangefinder, must be >10hz
+# http://mavlink.org/messages/common#DISTANCE_SENSOR
+def send_distance_message(dist):
+    msg = vehicle.message_factory.distance_sensor_encode(
+        0,          # time since system boot, not used
+        1,          # min distance cm
+        10000,      # max distance cm
+        dist,       # current distance, must be int
+        0,          # type = laser?
+        0,          # onboard id, not used
+        mavutil.mavlink.MAV_SENSOR_ROTATION_PITCH_270, # must be set to MAV_SENSOR_ROTATION_PITCH_270 for mavlink rangefinder, represents downward facing
+        0           # covariance, not used
+    )
+    vehicle.send_mavlink(msg)
+    vehicle.flush()
+
+# Define function to send landing_target mavlink message for mavlink based precision landing
+# http://mavlink.org/messages/common#LANDING_TARGET
+def send_land_message(x,y,z):
+    msg = vehicle.message_factory.landing_target_encode(
+        0,          # time since system boot, not used
+        0,          # target num, not used
+        0,          # frame, not used
+        x,          # X-axis angular offset, in radians
+        y,          # Y-axis angular offset, in radians
+        z,          # distance, in meters
+        0,          # Target x-axis size, in radians
+        0           # Target y-axis size, in radians
+    )
+    vehicle.send_mavlink(msg)
+    vehicle.flush()
+    
+
+### Start actual vision landing logic
+
+# Connect to the Vehicle
+print 'Connecting to vehicle on: %s' % args.connectstring
+vehicle = connect(args.connectstring, wait_ready=True)
+if not vehicle:
+    print "Error: Could not connect to drone"
+    exit(1)
+
+# Set some parameters important to precision landing
+vehicle.parameters['PLND_ENABLED'] = 1 # Companion computer
+vehicle.parameters['PLND_TYPE'] = 1
+vehicle.parameters['RNGFND_TYPE'] = 10 # Mavlink
+vehicle.parameters['RNGFND_MIN_CM'] = 1
+vehicle.parameters['RNGFND_MAX_CM'] = 10000
+vehicle.parameters['RNGFND_GNDCLEAR'] = 5
+
+# If simulator option set, perform initial takeoff and initiate land
+if args.simulator:
+    # Take off to 10m altitude
+    arm_and_takeoff(10)
+
+    # Start landing
+    print("Starting landing...")
+    vehicle.mode = VehicleMode("LAND")
+
+# Clear the vision tracking queue, we don't want to blast mavlink messages for everything stacked up
+treader.clear()
+
+# Now enter a loop and send mavlink messages for every event received from the target tracker
+while True:
+    line = treader.readline()
+    if line:
+        try:
+            [id,x,y,z] = line.rstrip().split(":")
+            [id,x,y,z] = [int(id),float(x),float(y),float(z)] # Cast to required types
+            send_distance_message(int(z*100))
+            send_land_message(x,y,z)
+            print "Alt:", vehicle.location.global_relative_frame.alt, ", Rangefinder:", vehicle.rangefinder.distance, ", Marker:", id, ", Distance:",z, "x offset:", x, "y offset:", y
+        except:
+            pass
+
+    if (vehicle.rangefinder.distance > 0 and vehicle.rangefinder.distance <= 0.1) or vehicle.location.global_relative_frame.alt <= 0.1:
+        print "Landed"
+        break
+
+# Try to gracefully close target tracker
+treader.close()
+track_targets.kill()
+
+# Close connection to the drone
+vehicle.close()
