@@ -68,9 +68,9 @@ void drawARLandingCube(cv::Mat &Image, Marker &m, const CameraParameters &CP) {
 }
 
 // Print the calculated distance at bottom of image
-void drawDistance(Mat &in, Scalar color, int lineWidth, float Distance) {
+void drawDistance(Mat &in, Scalar color, int lineWidth, float Distance, int MarkerId) {
     char cad[100];
-    sprintf(cad, "Distance to Landing Target: %0.2fm", Distance);
+    sprintf(cad, "Distance to Target: %0.2fm, ID: %i", Distance, MarkerId);
     Point cent(10, 460);
     cv::putText(in, cad, cent, FONT_HERSHEY_SIMPLEX, std::max(0.5f,float(lineWidth)*0.3f), color, lineWidth);
 }
@@ -87,6 +87,7 @@ int main(int argc, char** argv) {
     // Setup arguments for parser
     args::ArgumentParser parser("Track fiducial markers and estimate pose, output translation vectors for vision_landing");
     args::HelpFlag help(parser, "help", "Display this help menu", {'h', "help"});
+    args::ValueFlag<int> markerid(parser, "markerid", "Marker ID", {'i', "id"});
     args::ValueFlag<string> dict(parser, "dict", "Marker Dictionary", {'d', "dict"});
     args::ValueFlag<string> output(parser, "output", "Output Stream", {'o', "output"});
     args::Positional<string> input(parser, "input", "Input Stream");
@@ -177,17 +178,32 @@ int main(int argc, char** argv) {
         // Do pose estimation for each marker
         for(auto & marker:Markers)
             MTracker[marker.id].estimatePose(marker,CamParam,MarkerSize);
+
+        // If marker id is specified then look for just that id, otherwise lock on to closest marker
+        int _marker;
+        if (markerid) {
+            _marker = args::get(markerid);
+        } else {
+            double _markerdistance = 9999.99;
+            for (unsigned int i = 0; i < Markers.size(); i++) {
+                if (Markers[i].Tvec.at<float>(0,2) > 0 && Markers[i].Tvec.at<float>(0,2) < _markerdistance) {
+                    _markerdistance = Markers[i].Tvec.at<float>(0,2);
+                    _marker = Markers[i].id;
+                }
+            }
+        }
+
         // Loop through each detected marker
         for (unsigned int i = 0; i < Markers.size(); i++) {
-            // If marker id 1 was found, draw a green marker
-            if (Markers[i].id == 1) {
+            // If marker id was found, draw a green marker
+            if (Markers[i].id == _marker) {
                 Markers[i].draw(rawimage, Scalar(0, 255, 0), 2, false);
                 // If pose estimation was successful, draw AR cube and distance
                 if (CamParam.isValid() && MarkerSize != -1){
                     cout << Markers[i].id << ":" << Markers[i].Tvec.at<float>(0,0) << ":" << Markers[i].Tvec.at<float>(0,1) << ":" << Markers[i].Tvec.at<float>(0,2) << endl;
                     drawARLandingCube(rawimage, Markers[i], CamParam);
                     CvDrawingUtils::draw3dAxis(rawimage, Markers[i], CamParam);
-                    drawDistance(rawimage, Scalar(0, 255, 0), 1, Markers[i].Tvec.at<float>(0,2));
+                    drawDistance(rawimage, Scalar(0, 255, 0), 1, Markers[i].Tvec.at<float>(0,2), _marker);
                 }
             // Otherwise draw a red marker
             } else {
@@ -195,10 +211,9 @@ int main(int argc, char** argv) {
             }
         }
 
-        if (output) {
+        if (output)
             writer << rawimage;
-        }
-        
+
     }
 
 }
