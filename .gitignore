@@ -2,3 +2,5 @@ CMakeCache.txt
 CMakeFiles/
 cmake_install.cmake
 Makefile
+src/install_manifest.txt
+track_targets

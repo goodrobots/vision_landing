@@ -7,8 +7,10 @@ It uses tracking across images in order to avoid ambiguity problem with a single
 For each target detected, it performs pose estimation and outputs the marker ID and translation vectors.
 These vectors are used by vision_landing mavlink messages to enable precision landing by vision alone.
 
-Compile with: $ g++ src/track_targets.cpp -o track_targets -std=gnu++11 `pkg-config --cflags --libs aruco`
-Run separately with: ./track_targets /dev/video0 calibration.yml 0.235 -d TAG_36h11
+Compile with cmake: cmake . && make
+ or manually: g++ src/track_targets.cpp -o track_targets -std=gnu++11 `pkg-config --cflags --libs aruco`
+
+Run separately with: ./track_targets -d TAG36h11 /dev/video0 calibration.yml 0.235
 **/
 
 #include <iostream>

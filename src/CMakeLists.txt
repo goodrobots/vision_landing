@@ -20,8 +20,6 @@ find_library (aruco_library aruco
     hints ${pc_aruco_libdir} ${pc_aruco_library_dirs} )
     
 include(FindPackageHandleStandardArgs)
-# handle the QUIETLY and REQUIRED arguments and set ARUCO_FOUND to TRUE
-# if all listed variables are TRUE
 find_package_handle_standard_args(aruco  DEFAULT_MSG
                                   aruco_library aruco_include_dir)
 
@@ -32,3 +30,5 @@ set(aruco_include_dirs ${aruco_include_dir} )
 
 include_directories(${aruco_include_dir} ${OpenCV_INCLUDE_DIRS})
 target_link_libraries(track_targets ${aruco_library} ${OpenCV_LIBS})
+
+install(PROGRAMS track_targets DESTINATION ${CMAKE_CURRENT_SOURCE_DIR}/..)
