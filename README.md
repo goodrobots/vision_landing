@@ -4,17 +4,17 @@ This is a little project to achieve precision landing on drones using ArduCopter
 
 Dependencies
 --------------------
-**OpenCV (>3.0 recommended)**
-If possible find packages for your OS for version 3.0 or above (or install from source, for the brave), or else install 2.x packages for your OS.  For debian/ubuntu which currently only has opencv2.4, you probably want to install at least these packages:
- libopencv-dev
- libopencv-calib3d-dev
- libopencv-highgui-dev
- libopencv-imgproc-dev
+**OpenCV (>3.0 recommended)**  
+If possible find packages for your OS for version 3.0 or above (or install from source, for the brave), or else install 2.x packages for your OS.  For debian/ubuntu which currently only has opencv2.4, you probably want to install at least these packages:  
+ libopencv-dev  
+ libopencv-calib3d-dev  
+ libopencv-highgui-dev  
+ libopencv-imgproc-  
 Note that this was developed using OpenCV 3.2.  SolvePNP which is the underlying function for pose estimation that aruco uses is somewhat broken in 2.4 so aruco includes it's own routines, only using solvepnp in OpenCV >3.0.
 
 **Aruco (>2.0)**
-It is recommended to install 2.0.16 from https://github.com/fnoop/aruco as it has patched pkg-config files.
-Installation is straight forward:
+It is recommended to install 2.0.16 from https://github.com/fnoop/aruco as it has patched pkg-config files.  
+Installation is straight forward:  
  ```
  git clone https://github.com/fnoop/aruco
  cd aruco
@@ -22,16 +22,16 @@ Installation is straight forward:
  ```
  
 **Dronekit**
-Install the latest dronekit:
+Install the latest dronekit:  
  ```
  sudo pip install dronekit
  ```
 
 Installation
 --------------------
-First ensure the above dependencies are already installed.
+First ensure the above dependencies are already installed.  
 
-There are two main components:
+There are two main components:  
  - vision_landing, a python script
  - track_targets, a c++ program
 
@@ -53,10 +53,10 @@ There are three mandatory arguments:
  - calibration: This is the file containing calibration data, eg. calibration/ocam5cr-calibration-640x480.yml
 
 There are several optional arguments:
- --input: This is the video stream 'pipeline' used to look for targets.  It defaults to /dev/video0 which is what most USB cameras show up as (/dev/video2 typically for odroid xu4 with hardware encoding activated).  Video files can be used for testing by just specifying the video file name here.
- --output: This is the output 'pipeline' that can be used to save the video stream with AR data overlaid.  This can either be a video file name (which will be uncompressed and very large), or you can create gstreamer pipelines.  Example pipline for odroid xu4 with hardware encoding activated to stream h264 compressed video with AR markers in realtime would be:
+ - --input: This is the video stream 'pipeline' used to look for targets.  It defaults to /dev/video0 which is what most USB cameras show up as (/dev/video2 typically for odroid xu4 with hardware encoding activated).  Video files can be used for testing by just specifying the video file name here.
+ - --output: This is the output 'pipeline' that can be used to save the video stream with AR data overlaid.  This can either be a video file name (which will be uncompressed and very large), or you can create gstreamer pipelines.  Example pipline for odroid xu4 with hardware encoding activated to stream h264 compressed video with AR markers in realtime would be:
   appsrc ! autovideoconvert ! v4l2video11h264enc ! h264parse ! rtph264pay config-interval=1 pt=96 ! udpsink host=192.168.1.70 port=5000 sync=false
- --markerdict: Type of marker dictionary to use.  Only one dictionary can be detected at any one time.  Supported dictionaries are: ARUCO ARUCO_MIP_16h3 ARUCO_MIP_25h7 ARUCO_MIP_36h12 ARTOOLKITPLUS ARTOOLKITPLUSBCH TAG16h5 TAG25h7 TAG25h9 TAG36h11 TAG36h10
- --simulator: If this flag is set, when the dronekit connection is made the script will wait for prearm checks to pass and then take off to preset altitude and then initiate landing.  This is typically used when connecting to SITL simulator to test precision landing.
+ - --markerdict: Type of marker dictionary to use.  Only one dictionary can be detected at any one time.  Supported dictionaries are: ARUCO ARUCO_MIP_16h3 ARUCO_MIP_25h7 ARUCO_MIP_36h12 ARTOOLKITPLUS ARTOOLKITPLUSBCH TAG16h5 TAG25h7 TAG25h9 TAG36h11 TAG36h10
+ - --simulator: If this flag is set, when the dronekit connection is made the script will wait for prearm checks to pass and then take off to preset altitude and then initiate landing.  This is typically used when connecting to SITL simulator to test precision landing.
  
 
