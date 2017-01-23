@@ -6,10 +6,10 @@ Dependencies
 --------------------
 **OpenCV (>3.0 recommended)**  
 If possible find packages for your OS for version 3.0 or above (or install from source, for the brave), or else install 2.x packages for your OS.  For debian/ubuntu which currently only has opencv2.4, you probably want to install at least these packages:  
- libopencv-dev  
- libopencv-calib3d-dev  
- libopencv-highgui-dev  
- libopencv-imgproc-  
+ - libopencv-dev  
+ - libopencv-calib3d-dev  
+ - libopencv-highgui-dev  
+ - libopencv-imgproc-dev 
 Note that this was developed using OpenCV 3.2.  SolvePNP which is the underlying function for pose estimation that aruco uses is somewhat broken in 2.4 so aruco includes it's own routines, only using solvepnp in OpenCV >3.0.
 
 **Aruco (>2.0)**
@@ -59,4 +59,8 @@ There are several optional arguments:
  - --markerdict: Type of marker dictionary to use.  Only one dictionary can be detected at any one time.  Supported dictionaries are: ARUCO ARUCO_MIP_16h3 ARUCO_MIP_25h7 ARUCO_MIP_36h12 ARTOOLKITPLUS ARTOOLKITPLUSBCH TAG16h5 TAG25h7 TAG25h9 TAG36h11 TAG36h10
  - --simulator: If this flag is set, when the dronekit connection is made the script will wait for prearm checks to pass and then take off to preset altitude and then initiate landing.  This is typically used when connecting to SITL simulator to test precision landing.
  
-
+**Examples**
+```
+./vision_landing /dev/ttyS0 0.235 calibration/ocam5cr-calibration-640x480.yml
+./vision_landing --simulator --input /dev/video2 --output "appsrc ! autovideoconvert ! v4l2video11h264enc ! h264parse ! rtph264pay config-interval=1 pt=96 ! udpsink host=192.168.1.70 port=5000 sync=false" --markerdict TAG36h11 tcp:localhost:5777 0.235 calibration/ocam5cr-calibration-640x480.yml
+```
