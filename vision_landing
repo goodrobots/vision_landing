@@ -19,6 +19,7 @@ from dronekit import connect, VehicleMode, LocationGlobal, LocationGlobalRelativ
 from pymavlink import mavutil
 from time import sleep
 from sys import exit
+from os import path
 
 # Define threaded reader class
 class ThreadedReader:
@@ -60,6 +61,11 @@ parser.add_argument('--markerid', '-id', help="Target ID (optional, if not speci
 parser.add_argument('--simulator', '-s', action='store_true', help="Perform initial simulator actions for testing, takeoff and initiate land")
 args = parser.parse_args()
 
+# Check track_targets exists
+if not path.isfile("track_targets"):
+    print "Error: track_targets does not exist.  Please run 'cmake . && make' in src/ directory"
+    exit(1)
+    
 # Run the vision tracker as a thread
 try:
     # Define the basic arguments to track_targets
