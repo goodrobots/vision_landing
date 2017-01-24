@@ -17,7 +17,7 @@ from Queue import Queue, Empty
 from subprocess import Popen, PIPE
 from dronekit import connect, VehicleMode, LocationGlobal, LocationGlobalRelative
 from pymavlink import mavutil
-from time import sleep
+from time import sleep, time
 from sys import exit
 from os import path
 
@@ -186,6 +186,10 @@ if args.simulator:
 # Clear the vision tracking queue, we don't want to blast mavlink messages for everything stacked up
 treader.clear()
 
+# Setup timing containers
+frame_times = []
+start_t = time()
+
 # Now enter a loop and send mavlink messages for every event received from the target tracker
 while True:
     line = treader.readline()
@@ -195,7 +199,14 @@ while True:
             [id,x,y,z] = [int(id),float(x),float(y),float(z)] # Cast to required types
             send_distance_message(int(z*100))
             send_land_message(x,y,z)
-            print "Alt:", vehicle.location.global_relative_frame.alt, ", Rangefinder:", vehicle.rangefinder.distance, ", Marker:", id, ", Distance:",z, "x offset:", x, "y offset:", y
+            # Track frame timing to calculate fps
+            end_t = time()
+            time_taken = end_t - start_t
+            start_t = end_t
+            frame_times.append(time_taken)
+            frame_times = frame_times[-20:]
+            fps = len(frame_times) / sum(frame_times)
+            print "Fps: ", fps, ", Alt:", vehicle.location.global_relative_frame.alt, ", Rangefinder:", vehicle.rangefinder.distance, ", Marker:", id, ", Distance:",z, "x offset:", x, "y offset:", y
         except:
             pass
 
