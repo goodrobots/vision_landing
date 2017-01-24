@@ -76,8 +76,8 @@ void drawDistance(Mat &in, Scalar color, int lineWidth, float Distance, int Mark
 }
 
 // Define some initial consts
-const int width = 1280;
-const int height = 720;
+const int width = 640;
+const int height = 480;
 const double brightness = 0.5;
 const int fps = 30;
 
