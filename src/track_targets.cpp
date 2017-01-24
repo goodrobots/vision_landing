@@ -11,7 +11,7 @@ Compile with cmake: cmake . && make
  or manually: g++ src/track_targets.cpp -o track_targets -std=gnu++11 `pkg-config --cflags --libs aruco`
 
 Run separately with: ./track_targets -d TAG36h11 /dev/video0 calibration.yml 0.235
-./track_targets -w 1280 -g 720 -d TAG36h11 -o "appsrc ! autovideoconvert ! v4l2video11h264enc ! h264parse ! rtph264pay config-interval=1 pt=96 ! udpsink host=192.168.1.70 port=5000 sync=false" /dev/video2 calibration/ocam5cr-calibration-1280x720.yml 0.235
+./track_targets -w 1280 -g 720 -d TAG36h11 -o 'appsrc ! autovideoconvert ! v4l2video11h264enc extra-controls="encode,h264_level=10,h264_profile=4,frame_level_rate_control_enable=1,video_bitrate=2097152" ! h264parse ! rtph264pay config-interval=1 pt=96 ! udpsink host=192.168.1.70 port=5000 sync=false' /dev/video2 calibration/ocam5cr-calibration-1280x720.yml 0.235
 ./track_targets -w 1280 -g 720 -d TAG36h11 -o /srv/maverick/data/videos/landing.avi /dev/video2 calibration/ocam5cr-calibration-1280x720.yml 0.235
 **/
 
@@ -73,13 +73,13 @@ void drawARLandingCube(cv::Mat &Image, Marker &m, const CameraParameters &CP) {
 void drawDistance(Mat &in, Scalar color, int lineWidth, float Distance, int MarkerId) {
     char cad[100];
     sprintf(cad, "Distance to Target: %0.2fm, ID: %i", Distance, MarkerId);
-    Point cent(10, 460);
+    Point cent(10, 20);
     cv::putText(in, cad, cent, FONT_HERSHEY_SIMPLEX, std::max(0.5f,float(lineWidth)*0.3f), color, lineWidth);
 }
 
 // Define some initial consts
 const double brightness = 0.5;
-const int fps = 30;
+const int fps = 10;
 
 // main..
 int main(int argc, char** argv) {
