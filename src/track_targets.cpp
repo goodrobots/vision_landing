@@ -11,6 +11,7 @@ Compile with cmake: cmake . && make
  or manually: g++ src/track_targets.cpp -o track_targets -std=gnu++11 `pkg-config --cflags --libs aruco`
 
 Run separately with: ./track_targets -d TAG36h11 /dev/video0 calibration.yml 0.235
+./track_targets -d TAG36h11 -o "appsrc ! autovideoconvert ! v4l2video11h264enc ! h264parse ! rtph264pay config-interval1 pt=96 ! udpsink host=192.168.1.70 port=5000 sync=false" /dev/video2 calibration/ocam5cr-calibration-1280x720.yml 0.235
 **/
 
 #include <iostream>
@@ -76,8 +77,6 @@ void drawDistance(Mat &in, Scalar color, int lineWidth, float Distance, int Mark
 }
 
 // Define some initial consts
-const int width = 640;
-const int height = 480;
 const double brightness = 0.5;
 const int fps = 30;
 
@@ -91,6 +90,8 @@ int main(int argc, char** argv) {
     args::ValueFlag<int> markerid(parser, "markerid", "Marker ID", {'i', "id"});
     args::ValueFlag<string> dict(parser, "dict", "Marker Dictionary", {'d', "dict"});
     args::ValueFlag<string> output(parser, "output", "Output Stream", {'o', "output"});
+    args::ValueFlag<int> width(parser, "width", "Video Input Resolution - Width", {'w', "width"});
+    args::ValueFlag<int> height(parser, "height", "Video Input Resolution - Heigh", {'g', "height"});
     args::Positional<string> input(parser, "input", "Input Stream");
     args::Positional<string> calibration(parser, "calibration", "Calibration Data");
     args::Positional<double> markersize(parser, "markersize", "Marker Size");
@@ -134,10 +135,18 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    // If resolution is specified then use, otherwise use default
+    int inputwidth = 640;
+    int inputheight = 480;
+    if (width)
+        inputwidth = args::get(width);
+    if (height)
+        inputheight = args::get(height);
+        
     // Set camera properties
     vreader.set(CAP_PROP_BRIGHTNESS, brightness);
-    vreader.set(CV_CAP_PROP_FRAME_WIDTH, width);
-    vreader.set(CV_CAP_PROP_FRAME_HEIGHT, height);
+    vreader.set(CV_CAP_PROP_FRAME_WIDTH, inputwidth);
+    vreader.set(CV_CAP_PROP_FRAME_HEIGHT, inputheight);
 
     // Read and parse camera calibration data
     CamParam.readFromXMLFile(args::get(calibration));
@@ -153,7 +162,7 @@ int main(int argc, char** argv) {
     // Create an output object, if output specified then setup the pipeline
     VideoWriter writer;
     if (output) {
-        writer.open(args::get(output), 0, fps, cv::Size(width, height), true);
+        writer.open(args::get(output), 0, fps, cv::Size(inputwidth, inputheight), true);
         if (!writer.isOpened()) {
             cout << "Error can't create video writer" << endl;
             return 1;
