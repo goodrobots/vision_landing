@@ -11,6 +11,7 @@
 # Examples:
 # ./vision_landing /dev/ttyS0 0.235 calibration/ocam5cr-calibration-640x480.yml
 # ./vision_landing --simulator --input /dev/video2 --output "appsrc ! autovideoconvert ! v4l2video11h264enc ! h264parse ! rtph264pay config-interval=1 pt=96 ! udpsink host=192.168.1.70 port=5000 sync=false" --markerdict TAG36h11 tcp:localhost:5777 0.235 calibration/ocam5cr-calibration-640x480.yml
+# ./vision_landing --width 1280 --height 720 --input /dev/video2 --output "appsrc ! autovideoconvert ! v4l2video11h264enc ! h264parse ! rtph264pay config-interval=1 pt=96 ! udpsink host=192.168.1.70 port=5000 sync=false" --markerdict TAG36h11 tcp:localhost:5777 0.235 calibration/ocam5cr-calibration-1280x720.yml
 
 from threading import Thread, Event
 from Queue import Queue, Empty
@@ -59,6 +60,8 @@ parser.add_argument('--output', '-o', help="gstreamer output pipeline, defaults 
 parser.add_argument('--markerdict', '-d', default="ARUCO_MIP_36h12", help="Target marker dictionary, defaults to ARUCO_MIP_36h12")
 parser.add_argument('--markerid', '-id', help="Target ID (optional, if not specified will use closest target)")
 parser.add_argument('--simulator', '-s', action='store_true', help="Perform initial simulator actions for testing, takeoff and initiate land")
+parser.add_argument('--width', '-w', help="Video Input Resolution - Width")
+parser.add_argument('--height', '-g', help="Video Input Resolution - Height")
 args = parser.parse_args()
 
 # Check track_targets exists
@@ -79,6 +82,12 @@ try:
     # If marker id is set, pass it through
     if args.markerid:
         track_arguments.extend(['-i', args.markerid])
+    # If width is set, pass it through
+    if args.width:
+        track_arguments.extend(['-w', args.width])
+    # If height is set, pass it through
+    if args.height:
+        track_arguments.extend(['-g', args.height])
     # Add positional arguments
     track_arguments.extend([args.input, args.calibration, args.markersize])
     # Start the tracker and attach the output to threaded reader

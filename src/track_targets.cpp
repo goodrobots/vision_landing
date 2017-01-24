@@ -11,7 +11,8 @@ Compile with cmake: cmake . && make
  or manually: g++ src/track_targets.cpp -o track_targets -std=gnu++11 `pkg-config --cflags --libs aruco`
 
 Run separately with: ./track_targets -d TAG36h11 /dev/video0 calibration.yml 0.235
-./track_targets -d TAG36h11 -o "appsrc ! autovideoconvert ! v4l2video11h264enc ! h264parse ! rtph264pay config-interval1 pt=96 ! udpsink host=192.168.1.70 port=5000 sync=false" /dev/video2 calibration/ocam5cr-calibration-1280x720.yml 0.235
+./track_targets -w 1280 -g 720 -d TAG36h11 -o "appsrc ! autovideoconvert ! v4l2video11h264enc ! h264parse ! rtph264pay config-interval=1 pt=96 ! udpsink host=192.168.1.70 port=5000 sync=false" /dev/video2 calibration/ocam5cr-calibration-1280x720.yml 0.235
+./track_targets -w 1280 -g 720 -d TAG36h11 -o /srv/maverick/data/videos/landing.avi /dev/video2 calibration/ocam5cr-calibration-1280x720.yml 0.235
 **/
 
 #include <iostream>
@@ -91,7 +92,7 @@ int main(int argc, char** argv) {
     args::ValueFlag<string> dict(parser, "dict", "Marker Dictionary", {'d', "dict"});
     args::ValueFlag<string> output(parser, "output", "Output Stream", {'o', "output"});
     args::ValueFlag<int> width(parser, "width", "Video Input Resolution - Width", {'w', "width"});
-    args::ValueFlag<int> height(parser, "height", "Video Input Resolution - Heigh", {'g', "height"});
+    args::ValueFlag<int> height(parser, "height", "Video Input Resolution - Height", {'g', "height"});
     args::Positional<string> input(parser, "input", "Input Stream");
     args::Positional<string> calibration(parser, "calibration", "Calibration Data");
     args::Positional<double> markersize(parser, "markersize", "Marker Size");
