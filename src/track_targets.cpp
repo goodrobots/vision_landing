@@ -76,8 +76,8 @@ void drawDistance(Mat &in, Scalar color, int lineWidth, float Distance, int Mark
 }
 
 // Define some initial consts
-const int width = 640;
-const int height = 480;
+const int width = 1280;
+const int height = 720;
 const double brightness = 0.5;
 const int fps = 30;
 
@@ -87,6 +87,7 @@ int main(int argc, char** argv) {
     // Setup arguments for parser
     args::ArgumentParser parser("Track fiducial markers and estimate pose, output translation vectors for vision_landing");
     args::HelpFlag help(parser, "help", "Display this help menu", {'h', "help"});
+    args::Flag debug(parser, "debug", "Debug", {'u', "debug"});
     args::ValueFlag<int> markerid(parser, "markerid", "Marker ID", {'i', "id"});
     args::ValueFlag<string> dict(parser, "dict", "Marker Dictionary", {'d', "dict"});
     args::ValueFlag<string> output(parser, "output", "Output Stream", {'o', "output"});
@@ -186,6 +187,8 @@ int main(int argc, char** argv) {
         } else {
             double _markerdistance = 9999.99;
             for (unsigned int i = 0; i < Markers.size(); i++) {
+                if (debug)
+                    cout << "Detected target id:" << Markers[i].id << " tvec_x:" << Markers[i].Tvec.at<float>(0,0) << " tvec_y:" << Markers[i].Tvec.at<float>(0,1) << " distance:" << Markers[i].Tvec.at<float>(0,2) << endl;
                 if (Markers[i].Tvec.at<float>(0,2) > 0 && Markers[i].Tvec.at<float>(0,2) < _markerdistance) {
                     _markerdistance = Markers[i].Tvec.at<float>(0,2);
                     _marker = Markers[i].id;
