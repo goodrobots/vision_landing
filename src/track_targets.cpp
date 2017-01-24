@@ -79,7 +79,6 @@ void drawDistance(Mat &in, Scalar color, int lineWidth, float Distance, int Mark
 
 // Define some initial consts
 const double brightness = 0.5;
-const int fps = 10;
 
 // main..
 int main(int argc, char** argv) {
@@ -93,6 +92,7 @@ int main(int argc, char** argv) {
     args::ValueFlag<string> output(parser, "output", "Output Stream", {'o', "output"});
     args::ValueFlag<int> width(parser, "width", "Video Input Resolution - Width", {'w', "width"});
     args::ValueFlag<int> height(parser, "height", "Video Input Resolution - Height", {'g', "height"});
+    args::ValueFlag<int> fps(parser, "fps", "Video Output FPS - Kludge factor", {'f', "fps"});
     args::Positional<string> input(parser, "input", "Input Stream");
     args::Positional<string> calibration(parser, "calibration", "Calibration Data");
     args::Positional<double> markersize(parser, "markersize", "Marker Size");
@@ -144,6 +144,12 @@ int main(int argc, char** argv) {
     if (height)
         inputheight = args::get(height);
         
+    // If fps is specified then use, otherwise use default
+    // Note this doesn't seem to matter for network streaming, only when writing to file
+    int inputfps = 30;
+    if (fps)
+        inputfps = args::get(fps);
+
     // Set camera properties
     vreader.set(CAP_PROP_BRIGHTNESS, brightness);
     vreader.set(CV_CAP_PROP_FRAME_WIDTH, inputwidth);
@@ -163,7 +169,7 @@ int main(int argc, char** argv) {
     // Create an output object, if output specified then setup the pipeline
     VideoWriter writer;
     if (output) {
-        writer.open(args::get(output), 0, fps, cv::Size(inputwidth, inputheight), true);
+        writer.open(args::get(output), 0, inputfps, cv::Size(inputwidth, inputheight), true);
         if (!writer.isOpened()) {
             cout << "Error can't create video writer" << endl;
             return 1;
