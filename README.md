@@ -65,6 +65,6 @@ There are several optional arguments:
 ./vision_landing /dev/ttyS0 0.235 calibration/ocam5cr-calibration-640x480.yml
 ./vision_landing --markerid 580 --markerdict TAG36h11 /dev/ttyS0 0.235 calibration/ocam5cr-calibration-640x480.yml
 ./vision_landing --simulator --input /dev/video2 --output "appsrc ! autovideoconvert ! v4l2video11h264enc ! h264parse ! rtph264pay config-interval=1 pt=96 ! udpsink host=192.168.1.70 port=5000 sync=false" --markerdict TAG36h11 tcp:localhost:5777 0.235 calibration/ocam5cr-calibration-640x480.yml
-./vision_landing --input /dev/video2 --output "appsrc ! autovideoconvert ! v4l2video11h264enc ! h264parse ! rtph264pay config-interval=1 pt=96 ! udpsink host=192.168.1.70 port=5000 sync=false" --markerdict ARUCO_MIP_36h12 tcp:localhost:5777 0.235 calibration/ocam5cr-calibration-640x480.yml
+./vision_landing --input /dev/video2 --output /srv/maverick/data/video/landing.mpg --markerdict TAG36h11 tcp:localhost:5777 0.235 calibration/ocam5cr-calibration-640x480.yml
 
 ```
