@@ -220,8 +220,8 @@ while True:
             frame_times = frame_times[-20:]
             fps = len(frame_times) / sum(frame_times)
             print "Fps: ", fps, ", Alt:", vehicle.location.global_relative_frame.alt, ", Rangefinder:", vehicle.rangefinder.distance, ", Marker:", id, ", Distance:",z, "x offset:", x, "y offset:", y
-        except:
-            pass
+        except Exception as error:
+            print "Error in tracking loop:", error
 
     if args.simulator and ((vehicle.rangefinder.distance > 0 and vehicle.rangefinder.distance <= 0.1) or vehicle.location.global_relative_frame.alt <= 0.1):
         print "Landed"

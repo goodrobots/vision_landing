@@ -70,10 +70,10 @@ void drawARLandingCube(cv::Mat &Image, Marker &m, const CameraParameters &CP) {
 }
 
 // Print the calculated distance at bottom of image
-void drawDistance(Mat &in, Scalar color, int lineWidth, float Distance, int MarkerId) {
+void drawVectors(Mat &in, Scalar color, int lineWidth, int vOffset, int MarkerId, double X, double Y, double Distance) {
     char cad[100];
-    sprintf(cad, "Distance to Target: %0.2fm, ID: %i", Distance, MarkerId);
-    Point cent(10, 20);
+    sprintf(cad, "Target ID: %i, Distance: %0.3fm, X Offset: %0.3f, Y offset: %0.3f", MarkerId, Distance, X, Y);
+    Point cent(10, vOffset);
     cv::putText(in, cad, cent, FONT_HERSHEY_SIMPLEX, std::max(0.5f,float(lineWidth)*0.3f), color, lineWidth);
 }
 
@@ -222,11 +222,12 @@ int main(int argc, char** argv) {
                     cout << Markers[i].id << ":" << Markers[i].Tvec.at<float>(0,0) << ":" << Markers[i].Tvec.at<float>(0,1) << ":" << Markers[i].Tvec.at<float>(0,2) << endl;
                     drawARLandingCube(rawimage, Markers[i], CamParam);
                     CvDrawingUtils::draw3dAxis(rawimage, Markers[i], CamParam);
-                    drawDistance(rawimage, Scalar(0, 255, 0), 1, Markers[i].Tvec.at<float>(0,2), _marker);
+                    drawVectors(rawimage, Scalar (0,255,0), 1.5, (i+1)*20, Markers[i].id, Markers[i].Tvec.at<float>(0,0), Markers[i].Tvec.at<float>(0,1), Markers[i].Tvec.at<float>(0,2));
                 }
             // Otherwise draw a red marker
             } else {
                 Markers[i].draw(rawimage, Scalar(0, 0, 255), 2, false);
+                drawVectors(rawimage, Scalar (0,0,255), 1.5, (i+1)*20, Markers[i].id, Markers[i].Tvec.at<float>(0,0), Markers[i].Tvec.at<float>(0,1), Markers[i].Tvec.at<float>(0,2));
             }
         }
 
