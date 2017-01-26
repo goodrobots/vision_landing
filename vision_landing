@@ -11,6 +11,7 @@
 # Examples:
 # ./vision_landing /dev/ttyS0 0.235 calibration/ocam5cr-calibration-640x480.yml
 # ./vision_landing --simulator --input /dev/video2 --output "appsrc ! autovideoconvert ! v4l2video11h264enc ! h264parse ! rtph264pay config-interval=1 pt=96 ! udpsink host=192.168.1.70 port=5000 sync=false" --markerdict TAG36h11 tcp:localhost:5777 0.235 calibration/ocam5cr-calibration-640x480.yml
+# ./vision_landing --verbose --simulator --input /dev/video2 --output 'appsrc ! autovideoconvert ! v4l2video11h264enc extra-controls="encode,h264_level=10,h264_profile=4,frame_level_rate_control_enable=1,video_bitrate=2097152" ! h264parse ! rtph264pay config-interval=1 pt=96 ! udpsink host=192.168.1.70 port=5000 sync=false' --markerdict TAG36h11 --markerid 1 tcp:localhost:5777 0.235 calibration/ocam5cr-calibration-640x480.yml
 # ./vision_landing --width 1280 --height 720 --fps 10 --input /dev/video2 --output "appsrc ! autovideoconvert ! v4l2video11h264enc ! h264parse ! rtph264pay config-interval=1 pt=96 ! udpsink host=192.168.1.70 port=5000 sync=false" --markerdict TAG36h11 tcp:localhost:5777 0.235 calibration/ocam5cr-calibration-1280x720.yml
 
 from threading import Thread, Event
@@ -19,8 +20,10 @@ from subprocess import Popen, PIPE
 from dronekit import connect, VehicleMode, LocationGlobal, LocationGlobalRelative
 from pymavlink import mavutil
 from time import sleep, time
+from datetime import datetime
 from sys import exit
 from os import path
+from math import pi
 
 # Define threaded reader class
 class ThreadedReader:
@@ -63,6 +66,7 @@ parser.add_argument('--simulator', '-s', action='store_true', help="Perform init
 parser.add_argument('--width', '-w', help="Video Input Resolution - Width")
 parser.add_argument('--height', '-g', help="Video Input Resolution - Height")
 parser.add_argument('--fps', '-f', help="Video Output FPS - Kludge factor")
+parser.add_argument('--verbose', '-v', action='store_true', help="Verbose/Debug output")
 args = parser.parse_args()
 
 # Check track_targets exists
@@ -92,8 +96,13 @@ try:
     # If fps is set, pass it through
     if args.fps:
         track_arguments.extend(['-f', args.fps])
+    # If verbose is set, pass it through
+    if args.verbose:
+        track_arguments.extend(['-v'])
+
     # Add positional arguments
     track_arguments.extend([args.input, args.calibration, args.markersize])
+
     # Start the tracker and attach the output to threaded reader
     print "Starting track_targets with arguments:",track_arguments
     track_targets = Popen(track_arguments, stdin = PIPE, stdout = PIPE, stderr = PIPE, shell = False)
@@ -152,6 +161,8 @@ def send_distance_message(dist):
     )
     vehicle.send_mavlink(msg)
     vehicle.flush()
+    if args.verbose:
+        print datetime.now(),"Sending mavlink distance_message:",dist
 
 # Define function to send landing_target mavlink message for mavlink based precision landing
 # http://mavlink.org/messages/common#LANDING_TARGET
@@ -168,6 +179,8 @@ def send_land_message(x,y,z):
     )
     vehicle.send_mavlink(msg)
     vehicle.flush()
+    if args.verbose:
+        print datetime.now(),"Sending mavlink landing_target:",x,y,z
     
 
 ### Start actual vision landing logic
@@ -208,8 +221,19 @@ while True:
     line = treader.readline()
     if line:
         try:
-            [id,x,y,z] = line.rstrip().split(":")
-            [id,x,y,z] = [int(id),float(x),float(y),float(z)] # Cast to required types
+            # Unpack data from track_targets data
+            trackdata = line.rstrip().split(":")
+            
+            # If not target data, print and skip to next data
+            if trackdata[0] != "target":
+                datatype = trackdata[0]
+                if args.verbose:
+                    print datetime.now(), datatype[0].upper() + datatype[1:], trackdata[1:]
+                continue
+
+            # Unpack and cast target data to correct types
+            [id,x,y,z] = trackdata[1:]
+            [id,x,y,z] = [int(id),float(x),float(y),float(z)]
             send_distance_message(int(z*100))
             send_land_message(x,y,z)
             # Track frame timing to calculate fps
@@ -219,11 +243,12 @@ while True:
             frame_times.append(time_taken)
             frame_times = frame_times[-20:]
             fps = len(frame_times) / sum(frame_times)
-            print "Fps: ", fps, ", Alt:", vehicle.location.global_relative_frame.alt, ", Rangefinder:", vehicle.rangefinder.distance, ", Marker:", id, ", Distance:",z, "x offset:", x, "y offset:", y
+            print datetime.now(), "Fps: ", fps, ", Alt:", vehicle.location.global_relative_frame.alt, ", Rangefinder:", vehicle.rangefinder.distance, ", Marker:", id, ", Distance:",z, "xOffset:", x, "yOffset:", y
         except Exception as error:
             print "Error in tracking loop:", error
 
-    if args.simulator and ((vehicle.rangefinder.distance > 0 and vehicle.rangefinder.distance <= 0.1) or vehicle.location.global_relative_frame.alt <= 0.1):
+    #if args.simulator and ((vehicle.rangefinder.distance > 0 and vehicle.rangefinder.distance <= 0.1) or vehicle.location.global_relative_frame.alt <= 0.1):
+    if args.simulator and not vehicle.armed:
         print "Landed"
         break
 

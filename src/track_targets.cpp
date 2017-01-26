@@ -13,6 +13,7 @@ Compile with cmake: cmake . && make
 Run separately with: ./track_targets -d TAG36h11 /dev/video0 calibration.yml 0.235
 ./track_targets -w 1280 -g 720 -d TAG36h11 -o 'appsrc ! autovideoconvert ! v4l2video11h264enc extra-controls="encode,h264_level=10,h264_profile=4,frame_level_rate_control_enable=1,video_bitrate=2097152" ! h264parse ! rtph264pay config-interval=1 pt=96 ! udpsink host=192.168.1.70 port=5000 sync=false' /dev/video2 calibration/ocam5cr-calibration-1280x720.yml 0.235
 ./track_targets -w 1280 -g 720 -d TAG36h11 -o /srv/maverick/data/videos/landing.avi /dev/video2 calibration/ocam5cr-calibration-1280x720.yml 0.235
+./track_targets -d TAG36h11 -o 'appsrc ! autovideoconvert ! v4l2video11h264enc extra-contros="encode,h264_level=10,h264_profile=4,frame_level_rate_control_enable=1,video_bitrate=2097152" ! h264parse ! rtph264pay config-interval=1 pt=96 ! udpsink host=192.168.1.70 port=5000 sync=false' -i 1 -v /dev/video2 calibration/ocam5cr-calibration-640x480.yml 0.235
 **/
 
 #include <iostream>
@@ -86,7 +87,7 @@ int main(int argc, char** argv) {
     // Setup arguments for parser
     args::ArgumentParser parser("Track fiducial markers and estimate pose, output translation vectors for vision_landing");
     args::HelpFlag help(parser, "help", "Display this help menu", {'h', "help"});
-    args::Flag debug(parser, "debug", "Debug", {'u', "debug"});
+    args::Flag verbose(parser, "verbose", "Verbose", {'v', "verbose"});
     args::ValueFlag<int> markerid(parser, "markerid", "Marker ID", {'i', "id"});
     args::ValueFlag<string> dict(parser, "dict", "Marker Dictionary", {'d', "dict"});
     args::ValueFlag<string> output(parser, "output", "Output Stream", {'o', "output"});
@@ -165,6 +166,12 @@ int main(int argc, char** argv) {
     // Take a single image and resize calibration parameters based on input stream dimensions
     vreader >> rawimage;
     CamParam.resize(rawimage.size());
+    
+    // Calculate the fov in radians from the calibration intrinsics
+    const double pi = std::atan(1)*4;
+    const double fovx = 2 * atan(inputwidth / (2 * CamParam.CameraMatrix.at<float>(0,0))); 
+    const double fovy = 2 * atan(inputheight / (2 * CamParam.CameraMatrix.at<float>(1,1)));
+    cout << "info:FoVx~" << fovx*(180/pi) << ":FoVy~" << fovy*(180/pi) << ":vWidth~" << inputwidth << ":vHeight~" << inputheight << endl;
 
     // Create an output object, if output specified then setup the pipeline
     VideoWriter writer;
@@ -203,8 +210,6 @@ int main(int argc, char** argv) {
         } else {
             double _markerdistance = 9999.99;
             for (unsigned int i = 0; i < Markers.size(); i++) {
-                if (debug)
-                    cout << "Detected target id:" << Markers[i].id << " tvec_x:" << Markers[i].Tvec.at<float>(0,0) << " tvec_y:" << Markers[i].Tvec.at<float>(0,1) << " distance:" << Markers[i].Tvec.at<float>(0,2) << endl;
                 if (Markers[i].Tvec.at<float>(0,2) > 0 && Markers[i].Tvec.at<float>(0,2) < _markerdistance) {
                     _markerdistance = Markers[i].Tvec.at<float>(0,2);
                     _marker = Markers[i].id;
@@ -218,16 +223,21 @@ int main(int argc, char** argv) {
             if (Markers[i].id == _marker) {
                 Markers[i].draw(rawimage, Scalar(0, 255, 0), 2, false);
                 // If pose estimation was successful, draw AR cube and distance
-                if (CamParam.isValid() && MarkerSize != -1){
-                    cout << Markers[i].id << ":" << Markers[i].Tvec.at<float>(0,0) << ":" << Markers[i].Tvec.at<float>(0,1) << ":" << Markers[i].Tvec.at<float>(0,2) << endl;
+                if (Markers[i].Tvec.at<float>(0,2) > 0) {
+                    // Calculate angular offsets in radians of center of detected marker
+                    double xoffset = (Markers[i].getCenter().x - (inputwidth/2)) * (fovx / inputwidth);
+                    double yoffset = (Markers[i].getCenter().y - (inputheight/2)) * (fovy / inputheight);
+                    if (verbose)
+                        cout << "debug: marker~" << Markers[i] << ":center~" << Markers[i].getCenter() << ":area~" << Markers[i].getArea() << endl;
+                    cout << "target:" << Markers[i].id << ":" << xoffset << ":" << yoffset << ":" << Markers[i].Tvec.at<float>(0,2) << endl;
                     drawARLandingCube(rawimage, Markers[i], CamParam);
                     CvDrawingUtils::draw3dAxis(rawimage, Markers[i], CamParam);
-                    drawVectors(rawimage, Scalar (0,255,0), 1.5, (i+1)*20, Markers[i].id, Markers[i].Tvec.at<float>(0,0), Markers[i].Tvec.at<float>(0,1), Markers[i].Tvec.at<float>(0,2));
+                    drawVectors(rawimage, Scalar (0,255,0), 1, (i+1)*20, Markers[i].id, Markers[i].Tvec.at<float>(0,0), Markers[i].Tvec.at<float>(0,1), Markers[i].Tvec.at<float>(0,2));
                 }
             // Otherwise draw a red marker
             } else {
                 Markers[i].draw(rawimage, Scalar(0, 0, 255), 2, false);
-                drawVectors(rawimage, Scalar (0,0,255), 1.5, (i+1)*20, Markers[i].id, Markers[i].Tvec.at<float>(0,0), Markers[i].Tvec.at<float>(0,1), Markers[i].Tvec.at<float>(0,2));
+                drawVectors(rawimage, Scalar (0,0,255), 1, (i+1)*20, Markers[i].id, Markers[i].Tvec.at<float>(0,0), Markers[i].Tvec.at<float>(0,1), Markers[i].Tvec.at<float>(0,2));
             }
         }
 
