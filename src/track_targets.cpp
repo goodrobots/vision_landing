@@ -167,11 +167,11 @@ int main(int argc, char** argv) {
     vreader >> rawimage;
     CamParam.resize(rawimage.size());
     
-    // Calculate the fov in radians from the calibration intrinsics
+    // Calculate the fov from the calibration intrinsics
     const double pi = std::atan(1)*4;
-    const double fovx = 2 * atan(inputwidth / (2 * CamParam.CameraMatrix.at<float>(0,0))); 
-    const double fovy = 2 * atan(inputheight / (2 * CamParam.CameraMatrix.at<float>(1,1)));
-    cout << "info:FoVx~" << fovx*(180/pi) << ":FoVy~" << fovy*(180/pi) << ":vWidth~" << inputwidth << ":vHeight~" << inputheight << endl;
+    const double fovx = 2 * atan(inputwidth / (2 * CamParam.CameraMatrix.at<float>(0,0))) * (180.0/pi); 
+    const double fovy = 2 * atan(inputheight / (2 * CamParam.CameraMatrix.at<float>(1,1))) * (180.0/pi);
+    cout << "info:FoVx~" << fovx << ":FoVy~" << fovy << ":vWidth~" << inputwidth << ":vHeight~" << inputheight << endl;
 
     // Create an output object, if output specified then setup the pipeline
     VideoWriter writer;
@@ -225,8 +225,8 @@ int main(int argc, char** argv) {
                 // If pose estimation was successful, draw AR cube and distance
                 if (Markers[i].Tvec.at<float>(0,2) > 0) {
                     // Calculate angular offsets in radians of center of detected marker
-                    double xoffset = (Markers[i].getCenter().x - (inputwidth/2)) * (fovx / inputwidth);
-                    double yoffset = (Markers[i].getCenter().y - (inputheight/2)) * (fovy / inputheight);
+                    double xoffset = ((Markers[i].getCenter().x - (inputwidth/2.0)) * ((fovx / inputwidth))) * (pi/180);
+                    double yoffset = ((Markers[i].getCenter().y - (inputheight/2.0)) * ((fovy / inputheight))) * (pi/180);
                     if (verbose)
                         cout << "debug: marker~" << Markers[i] << ":center~" << Markers[i].getCenter() << ":area~" << Markers[i].getArea() << endl;
                     cout << "target:" << Markers[i].id << ":" << xoffset << ":" << yoffset << ":" << Markers[i].Tvec.at<float>(0,2) << endl;
