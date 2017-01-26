@@ -67,6 +67,7 @@ parser.add_argument('--width', '-w', help="Video Input Resolution - Width")
 parser.add_argument('--height', '-g', help="Video Input Resolution - Height")
 parser.add_argument('--fps', '-f', help="Video Output FPS - Kludge factor")
 parser.add_argument('--verbose', '-v', action='store_true', help="Verbose/Debug output")
+parser.add_argument('--brightness', '-b', help="Camera Brightness/Gain")
 args = parser.parse_args()
 
 # Check track_targets exists
@@ -99,6 +100,9 @@ try:
     # If verbose is set, pass it through
     if args.verbose:
         track_arguments.extend(['-v'])
+    # If brightness is set, pass it through
+    if args.brightness:
+        track_arguments.extend(['-b', args.brightness])
 
     # Add positional arguments
     track_arguments.extend([args.input, args.calibration, args.markersize])

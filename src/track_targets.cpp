@@ -13,7 +13,7 @@ Compile with cmake: cmake . && make
 Run separately with: ./track_targets -d TAG36h11 /dev/video0 calibration.yml 0.235
 ./track_targets -w 1280 -g 720 -d TAG36h11 -o 'appsrc ! autovideoconvert ! v4l2video11h264enc extra-controls="encode,h264_level=10,h264_profile=4,frame_level_rate_control_enable=1,video_bitrate=2097152" ! h264parse ! rtph264pay config-interval=1 pt=96 ! udpsink host=192.168.1.70 port=5000 sync=false' /dev/video2 calibration/ocam5cr-calibration-1280x720.yml 0.235
 ./track_targets -w 1280 -g 720 -d TAG36h11 -o /srv/maverick/data/videos/landing.avi /dev/video2 calibration/ocam5cr-calibration-1280x720.yml 0.235
-./track_targets -d TAG36h11 -o 'appsrc ! autovideoconvert ! v4l2video11h264enc extra-contros="encode,h264_level=10,h264_profile=4,frame_level_rate_control_enable=1,video_bitrate=2097152" ! h264parse ! rtph264pay config-interval=1 pt=96 ! udpsink host=192.168.1.70 port=5000 sync=false' -i 1 -v /dev/video2 calibration/ocam5cr-calibration-640x480.yml 0.235
+./track_targets -b 0.8 -d TAG36h11 -o 'appsrc ! autovideoconvert ! v4l2video11h264enc extra-contros="encode,h264_level=10,h264_profile=4,frame_level_rate_control_enable=1,video_bitrate=2097152" ! h264parse ! rtph264pay config-interval=1 pt=96 ! udpsink host=192.168.1.70 port=5000 sync=false' -i 1 -v /dev/video2 calibration/ocam5cr-calibration-640x480.yml 0.235
 **/
 
 #include <iostream>
@@ -78,9 +78,6 @@ void drawVectors(Mat &in, Scalar color, int lineWidth, int vOffset, int MarkerId
     cv::putText(in, cad, cent, FONT_HERSHEY_SIMPLEX, std::max(0.5f,float(lineWidth)*0.3f), color, lineWidth);
 }
 
-// Define some initial consts
-const double brightness = 0.5;
-
 // main..
 int main(int argc, char** argv) {
 
@@ -94,6 +91,7 @@ int main(int argc, char** argv) {
     args::ValueFlag<int> width(parser, "width", "Video Input Resolution - Width", {'w', "width"});
     args::ValueFlag<int> height(parser, "height", "Video Input Resolution - Height", {'g', "height"});
     args::ValueFlag<int> fps(parser, "fps", "Video Output FPS - Kludge factor", {'f', "fps"});
+    args::ValueFlag<double> brightness(parser, "brightness", "Camera Brightness/Gain", {'b', "brightness"});
     args::Positional<string> input(parser, "input", "Input Stream");
     args::Positional<string> calibration(parser, "calibration", "Calibration Data");
     args::Positional<double> markersize(parser, "markersize", "Marker Size");
@@ -150,9 +148,14 @@ int main(int argc, char** argv) {
     int inputfps = 30;
     if (fps)
         inputfps = args::get(fps);
+        
+    // If brightness is specified then use, otherwise use default
+    double inputbrightness = 0.5;
+    if (brightness)
+        inputbrightness = args::get(brightness);
 
     // Set camera properties
-    vreader.set(CAP_PROP_BRIGHTNESS, brightness);
+    vreader.set(CAP_PROP_BRIGHTNESS, inputbrightness);
     vreader.set(CV_CAP_PROP_FRAME_WIDTH, inputwidth);
     vreader.set(CV_CAP_PROP_FRAME_HEIGHT, inputheight);
 
