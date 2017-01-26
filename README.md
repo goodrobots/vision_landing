@@ -1,6 +1,6 @@
 # vision_landing
-Precision landing using visual targets.
-This is a little project to achieve precision landing on drones using ArduCopter firmware, using vision alone.  Fiducial markers are printed and used as landing targets, and these targets provide orientation, location and distance information when combined with accurate size information of the markers and calibrated camera information.
+### Precision landing using visual targets.  
+This is a project to achieve precision landing on drones using ArduCopter firmware, using vision alone.  Fiducial markers are printed and used as landing targets, and these targets provide orientation, location and distance information when combined with accurate size information of the markers and calibrated camera information.
 
 Dependencies
 --------------------
@@ -26,6 +26,21 @@ Install the latest dronekit:
  ```
  sudo pip install dronekit
  ```
+
+Printing Targets/Markers
+--------------------
+The landing targets used in this project are called 'fiducial markers'.  Fiducial markers are encoded objects (think QR codes or bar codes) that are used by computer vision systems as reference points in a scene.  There are numerous different types of encodings, which are called 'dictionaries'.  The marker library used in this project (Aruco) has it's own set of dictionaries, but it also supports other dictionary types such as AprilTags.  
+In order to perform the recommended calibration (detailed below in the next section), it is necessary to print a specific A4 marker board:  
+ https://github.com/fnoop/vision_landing/blob/master/calibration/aruco_calibration_board_a4.pdf
+
+
+Camera Calibration
+--------------------
+In order to perform any accurate Computer Vision work, you must first calibrate your camera.  Every camera and lens combination has different focal lengths, field of view, aperture, sensor size, optical center and lens distortions (eg. fisheye also known as positive radial distortion, or barrel distortion).  Even cameras or lenses of the same make/model will have small manufacturing tolerance/mistakes.  All of these must be known and compensated for.  
+OpenCV (which is what the vision code in this project uses) uses optional 'Camera Matrix' and 'Distortion Coefficients'  matrices (collectively called intrinsics) which are used to 'undistort' the raw image for accurate further processing and can also be used to automatically calculate focal length and field of view, necessary in turn to calculate the target angular offsets for precision landing and pose estimation used for accurate distance measurements.  There are numerous calibration methods for opencv, but there is a simple interactive routine included in the Aruco software installed as a dependency, so that process is recommended and documented briefly here:  
+<include link>
+
+
 
 Installation
 --------------------
