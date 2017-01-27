@@ -9,8 +9,8 @@
 # It launches a separate program track_targets which does the actual cv work and captures the resulting vectors from non-blocking thread handler.
 #
 # Examples:
-# ./vision_landing /dev/ttyS0 0.235 calibration/ocam5cr-calibration-640x480.yml
-# ./vision_landing --simulator --input /dev/video2 --output "appsrc ! autovideoconvert ! v4l2video11h264enc ! h264parse ! rtph264pay config-interval=1 pt=96 ! udpsink host=192.168.1.70 port=5000 sync=false" --markerdict TAG36h11 tcp:localhost:5777 0.235 calibration/ocam5cr-calibration-640x480.yml
+# ./vision_landing --fakerangefinder /dev/ttyS0 0.235 calibration/ocam5cr-calibration-640x480.yml
+# ./vision_landing --simulator --fakerangefinder --input /dev/video2 --output "appsrc ! autovideoconvert ! v4l2video11h264enc ! h264parse ! rtph264pay config-interval=1 pt=96 ! udpsink host=192.168.1.70 port=5000 sync=false" --markerdict TAG36h11 tcp:localhost:5777 0.235 calibration/ocam5cr-calibration-640x480.yml
 # ./vision_landing --verbose --simulator --input /dev/video2 --output 'appsrc ! autovideoconvert ! v4l2video11h264enc extra-controls="encode,h264_level=10,h264_profile=4,frame_level_rate_control_enable=1,video_bitrate=2097152" ! h264parse ! rtph264pay config-interval=1 pt=96 ! udpsink host=192.168.1.70 port=5000 sync=false' --markerdict TAG36h11 --markerid 1 tcp:localhost:5777 0.235 calibration/ocam5cr-calibration-640x480.yml
 # ./vision_landing --width 1280 --height 720 --fps 10 --input /dev/video2 --output "appsrc ! autovideoconvert ! v4l2video11h264enc ! h264parse ! rtph264pay config-interval=1 pt=96 ! udpsink host=192.168.1.70 port=5000 sync=false" --markerdict TAG36h11 tcp:localhost:5777 0.235 calibration/ocam5cr-calibration-1280x720.yml
 
@@ -68,6 +68,7 @@ parser.add_argument('--height', '-g', help="Video Input Resolution - Height")
 parser.add_argument('--fps', '-f', help="Video Output FPS - Kludge factor")
 parser.add_argument('--verbose', '-v', action='store_true', help="Verbose/Debug output")
 parser.add_argument('--brightness', '-b', help="Camera Brightness/Gain")
+parser.add_argument('--fakerangefinder', '-r', action='store_true', help="Fake RangeFinder Data")
 args = parser.parse_args()
 
 # Check track_targets exists
@@ -220,6 +221,9 @@ treader.clear()
 frame_times = []
 start_t = time()
 
+if args.fakerangefinder:
+    print "Faking RangeFinder data with distance_sensor messages"
+
 # Now enter a loop and send mavlink messages for every event received from the target tracker
 while True:
     line = treader.readline()
@@ -238,7 +242,8 @@ while True:
             # Unpack and cast target data to correct types
             [id,x,y,z] = trackdata[1:]
             [id,x,y,z] = [int(id),float(x),float(y),float(z)]
-            send_distance_message(int(z*100))
+            if args.fakerangefinder:
+                send_distance_message(int(z*100))
             send_land_message(x,y,z)
             # Track frame timing to calculate fps
             end_t = time()
