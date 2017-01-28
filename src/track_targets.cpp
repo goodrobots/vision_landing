@@ -158,6 +158,7 @@ int main(int argc, char** argv) {
     vreader.set(CAP_PROP_BRIGHTNESS, inputbrightness);
     vreader.set(CV_CAP_PROP_FRAME_WIDTH, inputwidth);
     vreader.set(CV_CAP_PROP_FRAME_HEIGHT, inputheight);
+    vreader.set(CV_CAP_PROP_FPS, inputfps);
 
     // Read and parse camera calibration data
     CamParam.readFromXMLFile(args::get(calibration));
