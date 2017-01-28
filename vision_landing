@@ -175,7 +175,7 @@ def send_land_message(x,y,z):
     msg = vehicle.message_factory.landing_target_encode(
         0,          # time since system boot, not used
         0,          # target num, not used
-        mavutils.mavlink.MAV_FRAME_BODY_NED, # frame, not used
+        mavutil.mavlink.MAV_FRAME_BODY_NED, # frame, not used
         x,          # X-axis angular offset, in radians
         y,          # Y-axis angular offset, in radians
         z,          # distance, in meters
