@@ -43,7 +43,7 @@ Once printed, measure the size of the marker (black edge to black edge) and this
 
 **the following is not yet implemented, tracked in [https://github.com/fnoop/vision_landing/issues/16]**  
 In order to address the problem of large markers exceeding the camera FoV at lower altitudes, multiple markers of differing sizes can be used.  As the craft descends in altitude locked on to a large marker, at some point a smaller marker will come into view and can be locked on to.  Marker boards can be used for increased robustness and accuracy.  An example of such a multiple marker board is included as an A1 PDF:
-https://github.com/fnoop/vision_landing/blob/master/markers/a1-landing.pdf
+https://github.com/fnoop/vision_landing/blob/master/markers/a1-landing.pdf  
 <img src="https://github.com/fnoop/vision_landing/blob/master/markers/a1-landing.png" width="300">  
 
 Camera Calibration
