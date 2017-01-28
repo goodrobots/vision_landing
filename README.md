@@ -37,8 +37,8 @@ When it comes to the landing markers themselves, the size and format depends on 
 Aruco recommends the 'ARUCO_MIP_36h12' dictionary for the best compromise between marker size and robustness.  
 <img src="https://github.com/fnoop/vision_landing/blob/master/markers/aruco_mip_36h12_00012.png" width="300">  
 This is a 36bit (6x6) 250 element dictionary and the intermarker distance is smaller than other aruco dictionaries such as 16h3 (4x4), so it's possible after further testing that these dictionaries with smaller marker size are better for precision landing.  So to start with, it is recommended to print a couple of markers (at your choice of size, A4 or A3 are easy to print and a good start):  
- https://github.com/fnoop/vision_landing/blob/master/markers/aruco_mip_36h12_00012.png
- https://github.com/fnoop/vision_landing/blob/master/markers/aruco_mip_36h12_00036.png
+ https://github.com/fnoop/vision_landing/blob/master/markers/aruco_mip_36h12_00012.png  
+ https://github.com/fnoop/vision_landing/blob/master/markers/aruco_mip_36h12_00036.png  
 Once printed, measure the size of the marker (black edge to black edge) and this is fed as the marker size parameter to vision_landing.  
 
 **the following is not yet implemented, tracked in [https://github.com/fnoop/vision_landing/issues/16]**  
