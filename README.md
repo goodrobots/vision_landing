@@ -35,12 +35,12 @@ In order to perform the recommended calibration (detailed below in the next sect
 It is important to print this on A4 size paper in exactly the size and proportions given in the PDF, as there are specific properties of the board that are expected by the calibration process.  
 When it comes to the landing markers themselves, the size and format depends on the nature of the craft and landing situations.  The higher the craft normally flies or will start landing from, the larger the target needs to be in order to be detected.  However, larger targets are more difficult to produce, transport and store, and they become unreadable at lower altitudes as they exceed the Field of View of the camera.  If precision landing is acceptable from a lower altitude then a smaller target can be used.  Alternatively, multiple targets can be used with varying sizes, so a larger target can be used for high altitude lock-on, then the vision system can switch to smaller targets at lower altitude for better precision and to keep within the FoV.  
 Aruco recommends the 'ARUCO_MIP_36h12' dictionary for the best compromise between marker size and robustness.  This is a 36bit (6x6) 250 element dictionary and the intermarker distance is smaller than other aruco dictionaries such as 16h3 (4x4), so it's possible after further testing that these dictionaries with smaller marker size are better for precision landing.  
-<img src="https://github.com/fnoop/vision_landing/blob/master/markers/aruco_mip_36h12_00012.png" width="600">  
+<img src="https://github.com/fnoop/vision_landing/blob/master/markers/aruco_mip_36h12_00012.png" width="300">  
 Single markers like above can be printed at any size.  Once printed, measure the size of the marker (black edge to black edge) and this is fed as the marker size parameter to vision_landing.  
 
 **the following is not yet implemented, tracked in [https://github.com/fnoop/vision_landing/issues/16]**  
 In order to address the problem of large markers exceeding the camera FoV at lower altitudes, multiple markers of differing sizes can be used.  As the craft descends in altitude locked on to a large marker, at some point a smaller marker will come into view and can be locked on to.  Marker boards can be used for increased robustness and accuracy.  An example of such a multiple marker board is included as an A1 PDF (vision_landing/markers/a1-landing.pdf):  
-<img src="https://github.com/fnoop/vision_landing/blob/master/markers/a1-landing.png" width="600">  
+<img src="https://github.com/fnoop/vision_landing/blob/master/markers/a1-landing.png" width="300">  
 
 Camera Calibration
 --------------------
