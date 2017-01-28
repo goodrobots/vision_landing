@@ -34,21 +34,26 @@ In order to perform the recommended calibration (detailed below in the next sect
  https://github.com/fnoop/vision_landing/blob/master/calibration/aruco_calibration_board_a4.pdf  
 It is important to print this on A4 size paper in exactly the size and proportions given in the PDF, as there are specific properties of the board that are expected by the calibration process.  
 When it comes to the landing markers themselves, the size and format depends on the nature of the craft and landing situations.  The higher the craft normally flies or will start landing from, the larger the target needs to be in order to be detected.  However, larger targets are more difficult to produce, transport and store, and they become unreadable at lower altitudes as they exceed the Field of View of the camera.  If precision landing is acceptable from a lower altitude then a smaller target can be used.  Alternatively, multiple targets can be used with varying sizes, so a larger target can be used for high altitude lock-on, then the vision system can switch to smaller targets at lower altitude for better precision and to keep within the FoV.  
-Aruco recommends the 'ARUCO_MIP_36h12' dictionary for the best compromise between marker size and robustness.  This is a 36bit (6x6) 250 element dictionary and the intermarker distance is smaller than other aruco dictionaries such as 16h3 (4x4), so it's possible after further testing that these dictionaries with smaller marker size are better for precision landing.  
+Aruco recommends the 'ARUCO_MIP_36h12' dictionary for the best compromise between marker size and robustness.  
 <img src="https://github.com/fnoop/vision_landing/blob/master/markers/aruco_mip_36h12_00012.png" width="300">  
-Single markers like above can be printed at any size.  Once printed, measure the size of the marker (black edge to black edge) and this is fed as the marker size parameter to vision_landing.  
+This is a 36bit (6x6) 250 element dictionary and the intermarker distance is smaller than other aruco dictionaries such as 16h3 (4x4), so it's possible after further testing that these dictionaries with smaller marker size are better for precision landing.  So to start with, it is recommended to print a couple of markers (at your choice of size, A4 or A3 are easy to print and a good start):  
+ https://github.com/fnoop/vision_landing/blob/master/markers/aruco_mip_36h12_00012.png
+ https://github.com/fnoop/vision_landing/blob/master/markers/aruco_mip_36h12_00036.png
+Once printed, measure the size of the marker (black edge to black edge) and this is fed as the marker size parameter to vision_landing.  
 
 **the following is not yet implemented, tracked in [https://github.com/fnoop/vision_landing/issues/16]**  
-In order to address the problem of large markers exceeding the camera FoV at lower altitudes, multiple markers of differing sizes can be used.  As the craft descends in altitude locked on to a large marker, at some point a smaller marker will come into view and can be locked on to.  Marker boards can be used for increased robustness and accuracy.  An example of such a multiple marker board is included as an A1 PDF (vision_landing/markers/a1-landing.pdf):  
+In order to address the problem of large markers exceeding the camera FoV at lower altitudes, multiple markers of differing sizes can be used.  As the craft descends in altitude locked on to a large marker, at some point a smaller marker will come into view and can be locked on to.  Marker boards can be used for increased robustness and accuracy.  An example of such a multiple marker board is included as an A1 PDF:
+https://github.com/fnoop/vision_landing/blob/master/markers/a1-landing.pdf
 <img src="https://github.com/fnoop/vision_landing/blob/master/markers/a1-landing.png" width="300">  
 
 Camera Calibration
 --------------------
 In order to perform any accurate Computer Vision work, you must first calibrate your camera.  Every camera and lens combination has different focal lengths, field of view, aperture, sensor size, optical center and lens distortions (eg. fisheye also known as positive radial distortion, or barrel distortion).  Even cameras or lenses of the same make/model will have small manufacturing tolerance/mistakes.  All of these must be known and compensated for.  
 OpenCV (which is what the vision code in this project uses) uses optional 'Camera Matrix' and 'Distortion Coefficients'  matrices (collectively called intrinsics) which are used to 'undistort' the raw image for accurate further processing and can also be used to automatically calculate focal length and field of view, necessary in turn to calculate the target angular offsets for precision landing and pose estimation used for accurate distance measurements.  There are numerous calibration methods for opencv, but there is a simple interactive routine included in the Aruco software installed as a dependency, so that process is recommended and documented briefly here:  
-<include link>
-
-
+ - Print the A4 calibration board detailed above
+ - Run aruco_calibration program: ```aruco_calibration live mycamera_calibration.yml -m calibration/aruco_calibration_board_a4.yml 0.033```
+ - Move the calibration board so it's in every position of the screen, particularly the outer edges (this is very important to capture the distortion of the lens at it's most extreme) and press 's' to capture a calibration snapshot at each position.
+ - After taking enough snapshots (more the better, at least 10 is good), press 'c' to produce the calibration.  With the above command, it will produce a 'mycamera_calibration.yml'  
 
 Installation
 --------------------
