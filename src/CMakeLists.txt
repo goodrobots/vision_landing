@@ -1,4 +1,4 @@
-cmake_minimum_required (VERSION 2.6)
+cmake_minimum_required (VERSION 3.2)
 project (track_targets)
 add_executable(track_targets track_targets.cpp)
 
@@ -8,27 +8,26 @@ add_definitions(${cpp_compile_flags})
 find_package(OpenCV REQUIRED)
 
 find_package(PkgConfig)
-pkg_check_modules(pc_aruco REQUIRED aruco)
-set(aruco_definitions ${pc_aruco_cflags_other})
+pkg_check_modules(PC_ARUCO QUIET REQUIRED aruco)
+set(ARUCO_DEFINITIONS ${PC_ARUCO_CFLAGS_OTHER})
 
+find_path(ARUCO_INCLUDE_DIR aruco/aruco.h
+    HINTS ${PC_ARUCO_INCLUDEDIR} ${PC_ARUCO_INCLUDE_DIRS}
+    PATH_SUFFIXES aruco )
 
-find_path(aruco_include_dir aruco/aruco.h
-    hints ${pc_aruco_includedir} ${pc_aruco_include_dirs}
-    path_suffixes aruco )
-    
-find_library (aruco_library aruco
-    hints ${pc_aruco_libdir} ${pc_aruco_library_dirs} )
-    
+find_library (ARUCO_LIBRARY NAMES aruco
+    HINTS ${PC_ARUCO_LIBDIR} ${PC_ARUCO_LIBRARY_DIRS} )
+
 include(FindPackageHandleStandardArgs)
-find_package_handle_standard_args(aruco  DEFAULT_MSG
-                                  aruco_library aruco_include_dir)
+find_package_handle_standard_args(Aruco DEFAULT_MSG
+    ARUCO_LIBRARY ARUCO_INCLUDE_DIR)
 
-mark_as_advanced(aruco_include_dir aruco_library )
+mark_as_advanced( ARUCO_INCLUDE_DIR ARUCO_LIBRARY )
 
-set(aruco_libraries ${aruco_library} )
-set(aruco_include_dirs ${aruco_include_dir} )
+set( ARUCO_LIBRARIES ${ARUCO_LIBRARY} )
+set( ARUCO_INCLUDE_DIRS ${ARUCO_INCLUDE_DIR} )
 
-include_directories(${aruco_include_dir} ${OpenCV_INCLUDE_DIRS})
-target_link_libraries(track_targets ${aruco_library} ${OpenCV_LIBS})
+include_directories(${ARUCO_INCLUDE_DIR} ${OpenCV_INCLUDE_DIRS})
+target_link_libraries(track_targets ${ARUCO_LIBRARY} ${OpenCV_LIBS})
 
 install(PROGRAMS track_targets DESTINATION ${CMAKE_CURRENT_SOURCE_DIR}/..)
