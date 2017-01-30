@@ -40,6 +40,7 @@ This is a 36bit (6x6) 250 element dictionary and the intermarker distance is sma
  https://github.com/fnoop/vision_landing/blob/master/markers/aruco_mip_36h12_00012.png  
  https://github.com/fnoop/vision_landing/blob/master/markers/aruco_mip_36h12_00036.png  
 Once printed, measure the size of the marker (black edge to black edge) and this is fed as the marker size parameter to vision_landing.  
+It is important that the markers do not deform, bend, flap or move, so it's advisable to mount them on something solid like board or perspex.  Cardboard mounting up to A1 size is easy to find in local print or stationary shops.  It is particularly important to make sure the A4 calibration page is rigid when doing the calibration.  
 
 **the following is not yet implemented, tracked in [https://github.com/fnoop/vision_landing/issues/16]**  
 In order to address the problem of large markers exceeding the camera FoV at lower altitudes, multiple markers of differing sizes can be used.  As the craft descends in altitude locked on to a large marker, at some point a smaller marker will come into view and can be locked on to.  Marker boards can be used for increased robustness and accuracy.  An example of such a multiple marker board is included as an A1 PDF:
@@ -73,20 +74,28 @@ You should now have a track_targets file in the same directory as the vision_lan
 
 Running
 --------------------
-To run this project, you MUST have accurate calibration data for your camera sensor/lens combination.  This can be quite challenging to accomplish, so sample calibration data for Odroid oCam 5cr and Raspberry Pi cameras (v1 only) are included in the calibration directory.  More will hopefully be added in the future.
+To run this project, you MUST have accurate calibration data for your camera sensor/lens combination.  This can be quite challenging to accomplish, so sample calibration data for Odroid oCam 5cr and Raspberry Pi cameras (v1 only) are included in the calibration directory.  More will hopefully be added in the future.  Note that even these supplied calibrations will not necessarily be perfect or even be guaranteed to work for your particular camera/lens combination, even if they are the same model.  It is highly recommended to take 10 minutes to perform the calibration.
 
 There are three mandatory arguments:
  - connectionstring: This is the dronekit connection string, eg. /dev/ttyS0 (for serial connection to FC), tcp:localhost:5770 (tcp connection to mavproxy), udp:localhost:14560 (udp connection to mavproxy).
- - markersize: This is the size of the fiducial marker in meters.  So a typical april tag printed on A3 will be around 235cm squared, so the value here would be 0.235.
+ - markersize: This is the size of the fiducial marker in meters.  So a typical april tag printed on A3 will be around 23.5cm from black edge to black edge, so the value here would be 0.235.
  - calibration: This is the file containing calibration data, eg. calibration/ocam5cr-calibration-640x480.yml
 
+** Note that the --fakerangefinder flag is currently always needed, a PR has been submitted to Ardupilot to fix this requirement **
+
 There are several optional arguments:
- - --input: This is the video stream 'pipeline' used to look for targets.  It defaults to /dev/video0 which is what most USB cameras show up as (/dev/video2 typically for odroid xu4 with hardware encoding activated).  Video files can be used for testing by just specifying the video file name here.
- - --output: This is the output 'pipeline' that can be used to save the video stream with AR data overlaid.  This can either be a video file name (which will be uncompressed and very large), or you can create gstreamer pipelines.  Example pipline for odroid xu4 with hardware encoding activated to stream h264 compressed video with AR markers in realtime would be:
-  appsrc ! autovideoconvert ! v4l2video11h264enc ! h264parse ! rtph264pay config-interval=1 pt=96 ! udpsink host=192.168.1.70 port=5000 sync=false
+ - --input: This is the video stream 'pipeline' used to look for targets.  It defaults to /dev/video0 which is what most USB cameras show up as (/dev/video2 typically for odroid xu4 with hardware encoding activated).  Video files can be used for testing by just specifying the video file name here.  A gstreamer pipeline can also be used here as long as it ends in appsink (eg. v4l2src device=/dev/video2 ! decodebin ! videoconvert ! appsink)
+ - --output: This is the output 'pipeline' that can be used to save the video stream with AR data overlaid.  This can either be a video file name (which will be uncompressed and very large), or you can create gstreamer pipelines.  Example pipeline for odroid xu4 with hardware encoding activated to stream h264 compressed video with AR markers in realtime would be:  
+  appsrc ! autovideoconvert ! v4l2video11h264enc ! h264parse ! rtph264pay config-interval=1 pt=96 ! udpsink host=192.168.1.x port=5000 sync=false
  - --markerid: Specify a marker ID to detect.  If specified, only a target matching this ID will be used for landing and any other target will be rejected.  If not specified, all targets in the specified or default dictionary will be detected and the closest will be chosen for landing.
- - --markerdict: Type of marker dictionary to use.  Only one dictionary can be detected at any one time.  Supported dictionaries are: ARUCO ARUCO_MIP_16h3 ARUCO_MIP_25h7 ARUCO_MIP_36h12 ARTOOLKITPLUS ARTOOLKITPLUSBCH TAG16h5 TAG25h7 TAG25h9 TAG36h11 TAG36h10
+ - --markerdict: Type of marker dictionary to use.  Only one dictionary can be detected at any one time.  Supported dictionaries are: ARUCO ARUCO_MIP_16h3 ARUCO_MIP_25h7 ARUCO_MIP_36h12 ARTOOLKITPLUS ARTOOLKITPLUSBCH TAG16h5 TAG25h7 TAG25h9 TAG36h11 TAG36h10.  Defaults to ARUCO_MIP_36h12.
  - --simulator: If this flag is set, when the dronekit connection is made the script will wait for prearm checks to pass and then take off to preset altitude and then initiate landing.  This is typically used when connecting to SITL simulator to test precision landing.
+ - --width: Set the width of the incoming video stream.  Note that camera intrinsics are resized but this will only work if the area of camera is sensor is the same as the calibration.  If a different aspect ratio is used then an appropriate calibration should be used, ie. 1280x720 resolution will not work with 640x480 calibration data.
+ - --height: As width, but for height.
+ - --fps: This attempts to set frames per second of incoming video but this is often not supported by the camera driver.  It can be used as a 'fudge factor' if saved video files look too fast or slow.
+ - --brightness: This can be used to increase or decrease gain or brightness in high or low light conditions.
+ - --fakerangefinder: This flag tells vision_landing to also send fake rangefinder data based on distance detected from a selected target.  This is necessary for all current arducopter firmware.  A PR is submitted to make this unnecessary in the future.
+ - --verbose: Turn on some extra info/debug output
  
 **Examples**
 ```
