@@ -79,6 +79,15 @@ cwd = path.dirname(path.abspath(__file__))
 if not path.isfile(cwd+"/track_targets"):
     print "Error: track_targets does not exist.  Please run 'cmake . && make' in src/ directory"
     exit(1)
+    
+# Check if calibration exists
+if path.isfile(cwd+"/calibration/"+args.calibration):
+    calibration = cwd+"/calibration/"+args.calibration
+elif path.isfile(args.calibration):
+    calibration = args.calibration
+else:
+    print "Error: specified calibration does not exist."
+    exit(1)
 
 # Run the vision tracker as a thread
 try:
@@ -110,7 +119,7 @@ try:
         track_arguments.extend(['-b', args.brightness])
 
     # Add positional arguments
-    track_arguments.extend([args.input, args.calibration, args.markersize])
+    track_arguments.extend([args.input, calibration, args.markersize])
 
     # Start the tracker and attach the output to threaded reader
     print "Starting track_targets with arguments:",track_arguments
