@@ -13,6 +13,7 @@
 # ./vision_landing --simulator --fakerangefinder --input /dev/video2 --output "appsrc ! autovideoconvert ! v4l2video11h264enc ! h264parse ! rtph264pay config-interval=1 pt=96 ! udpsink host=192.168.1.70 port=5000 sync=false" --markerdict TAG36h11 tcp:localhost:5777 0.235 calibration/ocam5cr-calibration-640x480.yml
 # ./vision_landing --verbose --simulator --input /dev/video2 --output 'appsrc ! autovideoconvert ! v4l2video11h264enc extra-controls="encode,h264_level=10,h264_profile=4,frame_level_rate_control_enable=1,video_bitrate=2097152" ! h264parse ! rtph264pay config-interval=1 pt=96 ! udpsink host=192.168.1.70 port=5000 sync=false' --markerdict TAG36h11 --markerid 1 tcp:localhost:5777 0.235 calibration/ocam5cr-calibration-640x480.yml
 # ./vision_landing --width 1280 --height 720 --fps 10 --input /dev/video2 --output "appsrc ! autovideoconvert ! v4l2video11h264enc ! h264parse ! rtph264pay config-interval=1 pt=96 ! udpsink host=192.168.1.70 port=5000 sync=false" --markerdict TAG36h11 tcp:localhost:5777 0.235 calibration/ocam5cr-calibration-1280x720.yml
+# ./vision_landing --verbose --fakerangefinder --simulator --markerdict TAG36h11 --markerid 1 tcp:localhost:5776 0.235 calibration/raspicamv1-calibration-640x480.yml
 
 from threading import Thread, Event
 from Queue import Queue, Empty
@@ -71,15 +72,18 @@ parser.add_argument('--brightness', '-b', help="Camera Brightness/Gain")
 parser.add_argument('--fakerangefinder', '-r', action='store_true', help="Fake RangeFinder Data")
 args = parser.parse_args()
 
+# Find full directory path of this script
+cwd = path.dirname(path.abspath(__file__))
+
 # Check track_targets exists
-if not path.isfile("track_targets"):
+if not path.isfile(cwd+"/track_targets"):
     print "Error: track_targets does not exist.  Please run 'cmake . && make' in src/ directory"
     exit(1)
-    
+
 # Run the vision tracker as a thread
 try:
     # Define the basic arguments to track_targets
-    track_arguments = ['./track_targets']
+    track_arguments = [cwd+'/track_targets']
     # If marker dictionary is set, pass it through
     if args.markerdict:
         track_arguments.extend(['-d', args.markerdict])
@@ -208,7 +212,7 @@ vehicle.parameters['RNGFND_GNDCLEAR'] = 5
 # If simulator option set, perform initial takeoff and initiate land
 if args.simulator:
     # Take off to 10m altitude
-    arm_and_takeoff(10)
+    arm_and_takeoff(25)
 
     # Start landing
     print("Starting landing...")
@@ -250,7 +254,7 @@ while True:
             time_taken = end_t - start_t
             start_t = end_t
             frame_times.append(time_taken)
-            frame_times = frame_times[-20:]
+            frame_times = frame_times[-5:]
             fps = len(frame_times) / sum(frame_times)
             print datetime.now(), "Fps: ", fps, ", Alt:", vehicle.location.global_relative_frame.alt, ", Rangefinder:", vehicle.rangefinder.distance, ", Marker:", id, ", Distance:",z, "xOffset:", x, "yOffset:", y
         except Exception as error:
