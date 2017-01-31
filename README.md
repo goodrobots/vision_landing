@@ -106,12 +106,12 @@ vision_landing can also be run without systemd by just calling the main script w
 The config file can also be used by calling vision_landing like this:  
 ``` . ./vision_landing.conf; ./vision_landing start $OPTS $CONNECT_STRING $MARKER_SIZE $CALIBRATION_FILE```  
 
-### Mandatory parameters:
+### Mandatory parameters  
  - **connectstring**: This is the dronekit connection string, eg. /dev/ttyS0 (for serial connection to FC), tcp:localhost:5770 (tcp connection to mavproxy), udp:localhost:14560 (udp connection to mavproxy).
  - **markersize**: This is the size of the fiducial marker in meters.  So a typical april tag printed on A3 will be around 23.5cm from black edge to black edge, so the value here would be 0.235.
  - **calibration**: This is the file containing calibration data, eg. calibration/ocam5cr-calibration-640x480.yml
 
-### Optional parameters
+### Optional parameters  
 ** Note that the --fakerangefinder flag is currently always needed, a PR has been submitted to Ardupilot to fix this requirement **  
  - **--input**: This is the video stream 'pipeline' used to look for targets.  It defaults to /dev/video0 which is what most USB cameras show up as (/dev/video2 typically for odroid xu4 with hardware encoding activated).  Video files can be used for testing by just specifying the video file name here.  A gstreamer pipeline can also be used here as long as it ends in appsink (eg. v4l2src device=/dev/video2 ! decodebin ! videoconvert ! appsink)
  - **--output**: This is the output 'pipeline' that can be used to save the video stream with AR data overlaid.  This can either be a video file name (which will be uncompressed and very large), or you can create gstreamer pipelines.  Example pipeline for odroid xu4 with hardware encoding activated to stream h264 compressed video with AR markers in realtime would be:   
