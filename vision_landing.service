@@ -1,0 +1,11 @@
+[Unit]
+Description=Vision Landing System
+# After=mavproxy.service
+
+[Service]
+EnvironmentFile=/usr/local/vision_landing/vision_landing.conf
+ExecStart=/usr/local/vision_landing/vision_landing $OPTS start $CONNECT_STRING $MARKER_SIZE $CALIBRATION_FILE
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target

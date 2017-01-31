@@ -72,18 +72,46 @@ track_targets must be compiled and installed into the main directory before visi
  ```
 You should now have a track_targets file in the same directory as the vision_landing script (the root of the vision_landing project).
 
+### Recommended Installation  
+In order to provide startup at system boot and 'graceful' stop, a systemd manifest is provided (vision_landing.service).  To install, either alter the manifest with the full path to where vision_landing has been downloaded to (replace all instances of /usr/local/vision_landing with new path), or perhaps easier is to copy or symlink the directory to /usr/local and the provided manifest can be used without alteration.  The following should be executed from the parent directory of vision_landing (ie. cd ..):  
+ ```
+ sudo ln -s `pwd`/vision_landing /usr/local
+ sudo cp vision_landing/vision_landing.service /etc/systemd/system
+ sudo systemctl daemon-reload
+ ```  
+
 Running
 --------------------
 To run this project, you MUST have accurate calibration data for your camera sensor/lens combination.  This can be quite challenging to accomplish, so sample calibration data for Odroid oCam 5cr and Raspberry Pi cameras (v1 only) are included in the calibration directory.  More will hopefully be added in the future.  Note that even these supplied calibrations will not necessarily be perfect or even be guaranteed to work for your particular camera/lens combination, even if they are the same model.  It is highly recommended to take 10 minutes to perform the calibration.
 
-There are three mandatory arguments:
- - connectionstring: This is the dronekit connection string, eg. /dev/ttyS0 (for serial connection to FC), tcp:localhost:5770 (tcp connection to mavproxy), udp:localhost:14560 (udp connection to mavproxy).
+### Systemd running
+Systemd is the recommended way to run vision_landing, and assumes that the 'Recommended Installation' in the previous section has been completed.  Using systemd, starting vision_landing is as simple as executing:  
+ ```sudo systemctl start vision_landing```  
+It can be stopped by executing:  
+ ```sudo systemctl stop vision_landing```  
+Note that when using systemd for control, mandatory and optional parameters are set using vision_landing.conf.  
+
+### Manual running
+vision_landing can also be run without systemd by just calling the main script with the necessary mandatory and optional parameters.  
+
+**Examples**
+```
+./vision_landing start /dev/ttyS0 0.235 calibration/ocam5cr-calibration-640x480.yml
+./vision_landing --markerid 580 --markerdict TAG36h11 start /dev/ttyS0 0.235 calibration/ocam5cr-calibration-640x480.yml
+./vision_landing --simulator --input /dev/video2 --output "appsrc ! autovideoconvert ! v4l2video11h264enc ! h264parse ! rtph264pay config-interval=1 pt=96 ! udpsink host=192.168.1.70 port=5000 sync=false" --markerdict TAG36h11 start tcp:localhost:5777 0.235 calibration/ocam5cr-calibration-640x480.yml
+./vision_landing --input /dev/video2 --output /srv/maverick/data/video/landing.mpg --markerdict TAG36h11 start tcp:localhost:5777 0.235 calibration/ocam5cr-calibration-640x480.yml
+```
+
+The config file can also be used by calling vision_landing like this:
+``` . ./vision_landing.conf; ./vision_landing start $OPTS $CONNECT_STRING $MARKER_SIZE $CALIBRATION_FILE```  
+
+### Mandatory parameters:
+ - connectstring: This is the dronekit connection string, eg. /dev/ttyS0 (for serial connection to FC), tcp:localhost:5770 (tcp connection to mavproxy), udp:localhost:14560 (udp connection to mavproxy).
  - markersize: This is the size of the fiducial marker in meters.  So a typical april tag printed on A3 will be around 23.5cm from black edge to black edge, so the value here would be 0.235.
  - calibration: This is the file containing calibration data, eg. calibration/ocam5cr-calibration-640x480.yml
 
-** Note that the --fakerangefinder flag is currently always needed, a PR has been submitted to Ardupilot to fix this requirement **
-
-There are several optional arguments:
+### Optional parameters
+** Note that the --fakerangefinder flag is currently always needed, a PR has been submitted to Ardupilot to fix this requirement **  
  - --input: This is the video stream 'pipeline' used to look for targets.  It defaults to /dev/video0 which is what most USB cameras show up as (/dev/video2 typically for odroid xu4 with hardware encoding activated).  Video files can be used for testing by just specifying the video file name here.  A gstreamer pipeline can also be used here as long as it ends in appsink (eg. v4l2src device=/dev/video2 ! decodebin ! videoconvert ! appsink)
  - --output: This is the output 'pipeline' that can be used to save the video stream with AR data overlaid.  This can either be a video file name (which will be uncompressed and very large), or you can create gstreamer pipelines.  Example pipeline for odroid xu4 with hardware encoding activated to stream h264 compressed video with AR markers in realtime would be:  
   appsrc ! autovideoconvert ! v4l2video11h264enc ! h264parse ! rtph264pay config-interval=1 pt=96 ! udpsink host=192.168.1.x port=5000 sync=false
@@ -97,11 +125,3 @@ There are several optional arguments:
  - --fakerangefinder: This flag tells vision_landing to also send fake rangefinder data based on distance detected from a selected target.  This is necessary for all current arducopter firmware.  A PR is submitted to make this unnecessary in the future.
  - --verbose: Turn on some extra info/debug output
  
-**Examples**
-```
-./vision_landing /dev/ttyS0 0.235 calibration/ocam5cr-calibration-640x480.yml
-./vision_landing --markerid 580 --markerdict TAG36h11 /dev/ttyS0 0.235 calibration/ocam5cr-calibration-640x480.yml
-./vision_landing --simulator --input /dev/video2 --output "appsrc ! autovideoconvert ! v4l2video11h264enc ! h264parse ! rtph264pay config-interval=1 pt=96 ! udpsink host=192.168.1.70 port=5000 sync=false" --markerdict TAG36h11 tcp:localhost:5777 0.235 calibration/ocam5cr-calibration-640x480.yml
-./vision_landing --input /dev/video2 --output /srv/maverick/data/video/landing.mpg --markerdict TAG36h11 tcp:localhost:5777 0.235 calibration/ocam5cr-calibration-640x480.yml
-
-```

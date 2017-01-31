@@ -8,12 +8,14 @@
 # The control is purely visual using pose estimation from fiducial markers (eg. aruco or april tags), no additional rangefinder is needed.
 # It launches a separate program track_targets which does the actual cv work and captures the resulting vectors from non-blocking thread handler.
 #
-# Examples:
-# ./vision_landing --fakerangefinder /dev/ttyS0 0.235 calibration/ocam5cr-calibration-640x480.yml
-# ./vision_landing --simulator --fakerangefinder --input /dev/video2 --output "appsrc ! autovideoconvert ! v4l2video11h264enc ! h264parse ! rtph264pay config-interval=1 pt=96 ! udpsink host=192.168.1.70 port=5000 sync=false" --markerdict TAG36h11 tcp:localhost:5777 0.235 calibration/ocam5cr-calibration-640x480.yml
-# ./vision_landing --verbose --simulator --input /dev/video2 --output 'appsrc ! autovideoconvert ! v4l2video11h264enc extra-controls="encode,h264_level=10,h264_profile=4,frame_level_rate_control_enable=1,video_bitrate=2097152" ! h264parse ! rtph264pay config-interval=1 pt=96 ! udpsink host=192.168.1.70 port=5000 sync=false' --markerdict TAG36h11 --markerid 1 tcp:localhost:5777 0.235 calibration/ocam5cr-calibration-640x480.yml
-# ./vision_landing --width 1280 --height 720 --fps 10 --input /dev/video2 --output "appsrc ! autovideoconvert ! v4l2video11h264enc ! h264parse ! rtph264pay config-interval=1 pt=96 ! udpsink host=192.168.1.70 port=5000 sync=false" --markerdict TAG36h11 tcp:localhost:5777 0.235 calibration/ocam5cr-calibration-1280x720.yml
-# ./vision_landing --verbose --fakerangefinder --simulator --markerdict TAG36h11 --markerid 1 tcp:localhost:5776 0.235 calibration/raspicamv1-calibration-640x480.yml
+# ./vision_landing [opts] command connectstring markersize calibrationdata
+#
+# Examples: 
+# ./vision_landing --fakerangefinder start /dev/ttyS0 0.235 calibration/ocam5cr-calibration-640x480.yml
+# ./vision_landing --simulator --fakerangefinder --input /dev/video2 --output "appsrc ! autovideoconvert ! v4l2video11h264enc ! h264parse ! rtph264pay config-interval=1 pt=96 ! udpsink host=192.168.1.70 port=5000 sync=false" --markerdict TAG36h11 start tcp:localhost:5777 0.235 calibration/ocam5cr-calibration-640x480.yml
+# ./vision_landing --verbose --simulator --input /dev/video2 --output 'appsrc ! autovideoconvert ! v4l2video11h264enc extra-controls="encode,h264_level=10,h264_profile=4,frame_level_rate_control_enable=1,video_bitrate=2097152" ! h264parse ! rtph264pay config-interval=1 pt=96 ! udpsink host=192.168.1.70 port=5000 sync=false' --markerdict TAG36h11 --markerid 1 start tcp:localhost:5777 0.235 calibration/ocam5cr-calibration-640x480.yml
+# ./vision_landing --width 1280 --height 720 --fps 10 --input /dev/video2 --output "appsrc ! autovideoconvert ! v4l2video11h264enc ! h264parse ! rtph264pay config-interval=1 pt=96 ! udpsink host=192.168.1.70 port=5000 sync=false" --markerdict TAG36h11 start tcp:localhost:5777 0.235 calibration/ocam5cr-calibration-1280x720.yml
+# ./vision_landing --verbose --fakerangefinder --simulator --markerdict TAG36h11 --markerid 1 start tcp:localhost:5776 0.235 calibration/raspicamv1-calibration-640x480.yml
 
 from threading import Thread, Event
 from Queue import Queue, Empty
@@ -56,6 +58,7 @@ class ThreadedReader:
 # Configure argument parsing
 import argparse  
 parser = argparse.ArgumentParser(description='Vision based precision landing')
+parser.add_argument('command', help="calling command: start or stop")
 parser.add_argument('connectstring', help="dronekit vehicle connection target string, eg. /dev/ttyS0, tcp:localhost:5770, udp:localhost:14560")
 parser.add_argument('markersize', help="Target marker size, in meters, required")
 parser.add_argument('calibration', help="camera calibration data, required")
