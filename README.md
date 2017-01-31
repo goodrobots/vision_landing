@@ -103,26 +103,26 @@ vision_landing can also be run without systemd by just calling the main script w
 ./vision_landing --input /dev/video2 --output /srv/maverick/data/video/landing.mpg --markerdict TAG36h11 start tcp:localhost:5777 0.235 calibration/ocam5cr-calibration-640x480.yml
 ```
 
-The config file can also be used by calling vision_landing like this:
+The config file can also be used by calling vision_landing like this:  
 ``` . ./vision_landing.conf; ./vision_landing start $OPTS $CONNECT_STRING $MARKER_SIZE $CALIBRATION_FILE```  
 
 ### Mandatory parameters:
- - connectstring: This is the dronekit connection string, eg. /dev/ttyS0 (for serial connection to FC), tcp:localhost:5770 (tcp connection to mavproxy), udp:localhost:14560 (udp connection to mavproxy).
- - markersize: This is the size of the fiducial marker in meters.  So a typical april tag printed on A3 will be around 23.5cm from black edge to black edge, so the value here would be 0.235.
- - calibration: This is the file containing calibration data, eg. calibration/ocam5cr-calibration-640x480.yml
+ - **connectstring**: This is the dronekit connection string, eg. /dev/ttyS0 (for serial connection to FC), tcp:localhost:5770 (tcp connection to mavproxy), udp:localhost:14560 (udp connection to mavproxy).
+ - **markersize**: This is the size of the fiducial marker in meters.  So a typical april tag printed on A3 will be around 23.5cm from black edge to black edge, so the value here would be 0.235.
+ - **calibration**: This is the file containing calibration data, eg. calibration/ocam5cr-calibration-640x480.yml
 
 ### Optional parameters
 ** Note that the --fakerangefinder flag is currently always needed, a PR has been submitted to Ardupilot to fix this requirement **  
- - --input: This is the video stream 'pipeline' used to look for targets.  It defaults to /dev/video0 which is what most USB cameras show up as (/dev/video2 typically for odroid xu4 with hardware encoding activated).  Video files can be used for testing by just specifying the video file name here.  A gstreamer pipeline can also be used here as long as it ends in appsink (eg. v4l2src device=/dev/video2 ! decodebin ! videoconvert ! appsink)
- - --output: This is the output 'pipeline' that can be used to save the video stream with AR data overlaid.  This can either be a video file name (which will be uncompressed and very large), or you can create gstreamer pipelines.  Example pipeline for odroid xu4 with hardware encoding activated to stream h264 compressed video with AR markers in realtime would be:   
+ - **--input**: This is the video stream 'pipeline' used to look for targets.  It defaults to /dev/video0 which is what most USB cameras show up as (/dev/video2 typically for odroid xu4 with hardware encoding activated).  Video files can be used for testing by just specifying the video file name here.  A gstreamer pipeline can also be used here as long as it ends in appsink (eg. v4l2src device=/dev/video2 ! decodebin ! videoconvert ! appsink)
+ - **--output**: This is the output 'pipeline' that can be used to save the video stream with AR data overlaid.  This can either be a video file name (which will be uncompressed and very large), or you can create gstreamer pipelines.  Example pipeline for odroid xu4 with hardware encoding activated to stream h264 compressed video with AR markers in realtime would be:   
   ```appsrc ! autovideoconvert ! v4l2video11h264enc ! h264parse ! rtph264pay config-interval=1 pt=96 ! udpsink host=192.168.1.x port=5000 sync=false```
- - --markerid: Specify a marker ID to detect.  If specified, only a target matching this ID will be used for landing and any other target will be rejected.  If not specified, all targets in the specified or default dictionary will be detected and the closest will be chosen for landing.
- - --markerdict: Type of marker dictionary to use.  Only one dictionary can be detected at any one time.  Supported dictionaries are: ARUCO ARUCO_MIP_16h3 ARUCO_MIP_25h7 ARUCO_MIP_36h12 ARTOOLKITPLUS ARTOOLKITPLUSBCH TAG16h5 TAG25h7 TAG25h9 TAG36h11 TAG36h10.  Defaults to ARUCO_MIP_36h12.
- - --simulator: If this flag is set, when the dronekit connection is made the script will wait for prearm checks to pass and then take off to preset altitude and then initiate landing.  This is typically used when connecting to SITL simulator to test precision landing.
- - --width: Set the width of the incoming video stream.  Note that camera intrinsics are resized but this will only work if the area of camera is sensor is the same as the calibration.  If a different aspect ratio is used then an appropriate calibration should be used, ie. 1280x720 resolution will not work with 640x480 calibration data.
- - --height: As width, but for height.
- - --fps: This attempts to set frames per second of incoming video but this is often not supported by the camera driver.  It can be used as a 'fudge factor' if saved video files look too fast or slow.
- - --brightness: This can be used to increase or decrease gain or brightness in high or low light conditions.
- - --fakerangefinder: This flag tells vision_landing to also send fake rangefinder data based on distance detected from a selected target.  This is necessary for all current arducopter firmware.  A PR is submitted to make this unnecessary in the future.
- - --verbose: Turn on some extra info/debug output
+ - **--markerid**: Specify a marker ID to detect.  If specified, only a target matching this ID will be used for landing and any other target will be rejected.  If not specified, all targets in the specified or default dictionary will be detected and the closest will be chosen for landing.
+ - **--markerdict**: Type of marker dictionary to use.  Only one dictionary can be detected at any one time.  Supported dictionaries are: ARUCO ARUCO_MIP_16h3 ARUCO_MIP_25h7 ARUCO_MIP_36h12 ARTOOLKITPLUS ARTOOLKITPLUSBCH TAG16h5 TAG25h7 TAG25h9 TAG36h11 TAG36h10.  Defaults to ARUCO_MIP_36h12.
+ - **--simulator**: If this flag is set, when the dronekit connection is made the script will wait for prearm checks to pass and then take off to preset altitude and then initiate landing.  This is typically used when connecting to SITL simulator to test precision landing.
+ - **--width**: Set the width of the incoming video stream.  Note that camera intrinsics are resized but this will only work if the area of camera is sensor is the same as the calibration.  If a different aspect ratio is used then an appropriate calibration should be used, ie. 1280x720 resolution will not work with 640x480 calibration data.
+ - **--height**: As width, but for height.
+ - **--fps**: This attempts to set frames per second of incoming video but this is often not supported by the camera driver.  It can be used as a 'fudge factor' if saved video files look too fast or slow.
+ - **--brightness**: This can be used to increase or decrease gain or brightness in high or low light conditions.
+ - **--fakerangefinder**: This flag tells vision_landing to also send fake rangefinder data based on distance detected from a selected target.  This is necessary for all current arducopter firmware.  A PR is submitted to make this unnecessary in the future.
+ - **--verbose**: Turn on some extra info/debug output
  
