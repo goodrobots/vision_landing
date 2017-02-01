@@ -104,7 +104,7 @@ vision_landing can also be run without systemd by just calling the main script w
 ```
 
 The config file can also be used by calling vision_landing like this:  
-``` . ./vision_landing.conf; ./vision_landing start $OPTS $CONNECT_STRING $MARKER_SIZE $CALIBRATION_FILE```  
+``` . ./vision_landing.conf; ./vision_landing $OPTS start $CONNECT_STRING $MARKER_SIZE $CALIBRATION_FILE```  
 
 ### Mandatory parameters  
  - **connectstring**: This is the dronekit connection string, eg. /dev/ttyS0 (for serial connection to FC), tcp:localhost:5770 (tcp connection to mavproxy), udp:localhost:14560 (udp connection to mavproxy).
