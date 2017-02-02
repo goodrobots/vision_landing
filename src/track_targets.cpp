@@ -71,9 +71,9 @@ void drawARLandingCube(cv::Mat &Image, Marker &m, const CameraParameters &CP) {
 }
 
 // Print the calculated distance at bottom of image
-void drawVectors(Mat &in, Scalar color, int lineWidth, int vOffset, int MarkerId, double X, double Y, double Distance) {
+void drawVectors(Mat &in, Scalar color, int lineWidth, int vOffset, int MarkerId, double X, double Y, double Distance, double cX, double cY) {
     char cad[100];
-    sprintf(cad, "Target ID: %i, Distance: %0.3fm, X Offset: %0.3f, Y offset: %0.3f", MarkerId, Distance, X, Y);
+    sprintf(cad, "ID:%i, Distance:%0.3fm, X:%0.3f, Y:%0.3f, cX:%0.3f, cY:%0.3f", MarkerId, Distance, X, Y, cX, cY);
     Point cent(10, vOffset);
     cv::putText(in, cad, cent, FONT_HERSHEY_SIMPLEX, std::max(0.5f,float(lineWidth)*0.3f), color, lineWidth);
 }
@@ -92,6 +92,7 @@ int main(int argc, char** argv) {
     args::ValueFlag<int> height(parser, "height", "Video Input Resolution - Height", {'g', "height"});
     args::ValueFlag<int> fps(parser, "fps", "Video Output FPS - Kludge factor", {'f', "fps"});
     args::ValueFlag<double> brightness(parser, "brightness", "Camera Brightness/Gain", {'b', "brightness"});
+    args::ValueFlag<string> fourcc(parser, "fourcc", "FourCC CoDec code", {'c', "fourcc"});
     args::Positional<string> input(parser, "input", "Input Stream");
     args::Positional<string> calibration(parser, "calibration", "Calibration Data");
     args::Positional<double> markersize(parser, "markersize", "Marker Size");
@@ -180,7 +181,12 @@ int main(int argc, char** argv) {
     // Create an output object, if output specified then setup the pipeline
     VideoWriter writer;
     if (output) {
-        writer.open(args::get(output), 0, inputfps, cv::Size(inputwidth, inputheight), true);
+        if (fourcc) {
+            string _fourcc = args::get(fourcc);
+            writer.open(args::get(output), CV_FOURCC(_fourcc[0], _fourcc[1], _fourcc[2], _fourcc[3]), inputfps, cv::Size(inputwidth, inputheight), true);
+        } else {
+            writer.open(args::get(output), 0, inputfps, cv::Size(inputwidth, inputheight), true);
+        }
         if (!writer.isOpened()) {
             cout << "Error can't create video writer" << endl;
             return 1;
@@ -232,16 +238,16 @@ int main(int argc, char** argv) {
                     double xoffset = ((Markers[i].getCenter().x - (inputwidth/2.0)) * ((fovx / inputwidth))) * (pi/180);
                     double yoffset = ((Markers[i].getCenter().y - (inputheight/2.0)) * ((fovy / inputheight))) * (pi/180);
                     if (verbose)
-                        cout << "debug: marker~" << Markers[i] << ":center~" << Markers[i].getCenter() << ":area~" << Markers[i].getArea() << endl;
+                        cout << "debug: center~" << Markers[i].getCenter() << ":area~" << Markers[i].getArea() << ":marker~" << Markers[i] << endl;
                     cout << "target:" << Markers[i].id << ":" << xoffset << ":" << yoffset << ":" << Markers[i].Tvec.at<float>(0,2) << endl;
                     drawARLandingCube(rawimage, Markers[i], CamParam);
                     CvDrawingUtils::draw3dAxis(rawimage, Markers[i], CamParam);
-                    drawVectors(rawimage, Scalar (0,255,0), 1, (i+1)*20, Markers[i].id, Markers[i].Tvec.at<float>(0,0), Markers[i].Tvec.at<float>(0,1), Markers[i].Tvec.at<float>(0,2));
+                    drawVectors(rawimage, Scalar (0,255,0), 1, (i+1)*20, Markers[i].id, xoffset, yoffset, Markers[i].Tvec.at<float>(0,2), Markers[i].getCenter().x, Markers[i].getCenter().y);
                 }
             // Otherwise draw a red marker
             } else {
                 Markers[i].draw(rawimage, Scalar(0, 0, 255), 2, false);
-                drawVectors(rawimage, Scalar (0,0,255), 1, (i+1)*20, Markers[i].id, Markers[i].Tvec.at<float>(0,0), Markers[i].Tvec.at<float>(0,1), Markers[i].Tvec.at<float>(0,2));
+                drawVectors(rawimage, Scalar (0,0,255), 1, (i+1)*20, Markers[i].id, 0, 0, Markers[i].Tvec.at<float>(0,2), Markers[i].getCenter().x, Markers[i].getCenter().y);
             }
         }
 
