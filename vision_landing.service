@@ -1,10 +1,9 @@
 [Unit]
 Description=Vision Landing System
-# After=mavproxy.service
+After=maverick-mavproxy-fc.service
 
 [Service]
-EnvironmentFile=/usr/local/vision_landing/vision_landing.conf
-ExecStart=/usr/local/vision_landing/vision_landing $OPTS start $CONNECT_STRING $MARKER_SIZE $CALIBRATION_FILE
+ExecStart=/usr/local/vision_landing/vision_landing start
 TimeoutStartSec=0
 
 [Install]

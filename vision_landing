@@ -8,7 +8,7 @@
 # The control is purely visual using pose estimation from fiducial markers (eg. aruco or april tags), no additional rangefinder is needed.
 # It launches a separate program track_targets which does the actual cv work and captures the resulting vectors from non-blocking thread handler.
 #
-# ./vision_landing [opts] command connectstring markersize calibrationdata
+# ./vision_landing
 #
 # Examples: 
 # ./vision_landing --fakerangefinder start /dev/ttyS0 0.235 calibration/ocam5cr-calibration-640x480.yml
@@ -55,13 +55,34 @@ class ThreadedReader:
     def close(self):
         self.stop.set()
 
+# Find full directory path of this script, used for loading config and other files
+cwd = path.dirname(path.abspath(__file__))
+
 # Configure argument parsing
-import argparse  
+import argparse
+import ConfigParser
+# First parse config file
+"""
+conf_parser = argparse.ArgumentParser(
+    description=__doc__,
+    formatter_class=argparse.RawDescriptionHelpFormatter,
+    add_help=False
+    )
+conf_parser.add_argument("-c", "--conf_file", help="Specify config file", metavar="FILE")
+args,remaining_argv = conf_parser.parse_known_args()
+"""
+defaults = {}
+if path.isfile(cwd+"/vision_landing.conf"):
+    config = ConfigParser.SafeConfigParser()
+    config.read([cwd+"/vision_landing.conf"])
+    defaults.update(dict(config.items("Defaults")))
+
 parser = argparse.ArgumentParser(description='Vision based precision landing')
+parser.set_defaults(**defaults)
 parser.add_argument('command', help="calling command: start or stop")
-parser.add_argument('connectstring', help="dronekit vehicle connection target string, eg. /dev/ttyS0, tcp:localhost:5770, udp:localhost:14560")
-parser.add_argument('markersize', help="Target marker size, in meters, required")
-parser.add_argument('calibration', help="camera calibration data, required")
+parser.add_argument('--connect', help="dronekit vehicle connection target string, eg. /dev/ttyS0, tcp:localhost:5770, udp:localhost:14560")
+parser.add_argument('--markersize', help="Target marker size, in meters, required")
+parser.add_argument('--calibration', help="camera calibration data, required")
 parser.add_argument('--input', '-i', default="/dev/video0", help="camera input, defaults to /dev/video0")
 parser.add_argument('--output', '-o', help="gstreamer output pipeline, defaults to none")
 parser.add_argument('--markerdict', '-d', default="ARUCO_MIP_36h12", help="Target marker dictionary, defaults to ARUCO_MIP_36h12")
@@ -72,11 +93,9 @@ parser.add_argument('--height', '-g', help="Video Input Resolution - Height")
 parser.add_argument('--fps', '-f', help="Video Output FPS - Kludge factor")
 parser.add_argument('--verbose', '-v', action='store_true', help="Verbose/Debug output")
 parser.add_argument('--brightness', '-b', help="Camera Brightness/Gain")
+parser.add_argument('--fourcc', '-c', help="Specify FourCC codec")
 parser.add_argument('--fakerangefinder', '-r', action='store_true', help="Fake RangeFinder Data")
 args = parser.parse_args()
-
-# Find full directory path of this script
-cwd = path.dirname(path.abspath(__file__))
 
 # Check track_targets exists
 if not path.isfile(cwd+"/track_targets"):
@@ -120,6 +139,9 @@ try:
     # If brightness is set, pass it through
     if args.brightness:
         track_arguments.extend(['-b', args.brightness])
+    # If fourcc codec is set, pass it through
+    if args.fourcc:
+        track_arguments.extend(['-c', args.fourcc])
 
     # Add positional arguments
     track_arguments.extend([args.input, calibration, args.markersize])
@@ -207,8 +229,8 @@ def send_land_message(x,y,z):
 ### Start actual vision landing logic
 
 # Connect to the Vehicle
-print 'Connecting to vehicle on: %s' % args.connectstring
-vehicle = connect(args.connectstring, wait_ready=True)
+print 'Connecting to vehicle on: %s' % args.connect
+vehicle = connect(args.connect, wait_ready=True)
 if not vehicle:
     print "Error: Could not connect to drone"
     exit(1)
