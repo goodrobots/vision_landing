@@ -235,8 +235,8 @@ int main(int argc, char** argv) {
                 // If pose estimation was successful, draw AR cube and distance
                 if (Markers[i].Tvec.at<float>(0,2) > 0) {
                     // Calculate angular offsets in radians of center of detected marker
-                    double xoffset = ((Markers[i].getCenter().x - (inputwidth/2.0)) * ((fovx / inputwidth))) * (pi/180);
-                    double yoffset = ((Markers[i].getCenter().y - (inputheight/2.0)) * ((fovy / inputheight))) * (pi/180);
+                    double xoffset = (Markers[i].getCenter().x - inputwidth / 2.0) * (fovx * (pi/180)) / inputwidth;
+                    double yoffset = (Markers[i].getCenter().y - inputheight / 2.0) * (fovy * (pi/180)) / inputheight;
                     if (verbose)
                         cout << "debug: center~" << Markers[i].getCenter() << ":area~" << Markers[i].getArea() << ":marker~" << Markers[i] << endl;
                     cout << "target:" << Markers[i].id << ":" << xoffset << ":" << yoffset << ":" << Markers[i].Tvec.at<float>(0,2) << endl;

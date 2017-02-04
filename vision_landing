@@ -238,10 +238,21 @@ if not vehicle:
 # Set some parameters important to precision landing
 vehicle.parameters['PLND_ENABLED'] = 1 # Companion computer
 vehicle.parameters['PLND_TYPE'] = 1
-vehicle.parameters['RNGFND_TYPE'] = 10 # Mavlink
+"""
+# Following are for mavlink based rangefinder
+vehicle.parameters['RNGFND_TYPE'] = 10
 vehicle.parameters['RNGFND_MIN_CM'] = 1
 vehicle.parameters['RNGFND_MAX_CM'] = 10000
 vehicle.parameters['RNGFND_GNDCLEAR'] = 5
+"""
+"""
+# Following are for SITL rangefinder
+vehicle.parameters['RNGFND_TYPE'] = 1 
+vehicle.parameters['RNGFND_MIN_CM'] = 0
+vehicle.parameters['RNGFND_MAX_CM'] = 4000
+vehicle.parameters['RNGFND_PIN'] = 0
+vehicle.parameters['RNGFND_SCALING'] = 12.12
+"""
 
 # If simulator option set, perform initial takeoff and initiate land
 if args.simulator:
