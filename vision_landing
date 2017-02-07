@@ -16,8 +16,10 @@ from pymavlink import mavutil
 from time import sleep, time
 from datetime import datetime
 from sys import exit
-from os import path
+from os import path, makedirs
 from math import pi
+from datetime import datetime
+import logging
 
 # Define threaded reader class
 class ThreadedReader:
@@ -49,6 +51,10 @@ class ThreadedReader:
 # Find full directory path of this script, used for loading config and other files
 cwd = path.dirname(path.abspath(__file__))
 
+# Find current time, used for dating files
+now = datetime.now()
+nowtime = now.strftime("%Y-%m-%d-%H-%M-%S")
+
 # Configure argument parsing
 import argparse
 import ConfigParser
@@ -58,7 +64,6 @@ if path.isfile(cwd+"/vision_landing.conf"):
     config = ConfigParser.SafeConfigParser()
     config.read([cwd+"/vision_landing.conf"])
     defaults.update(dict(config.items("Defaults")))
-
 parser = argparse.ArgumentParser(description='Vision based precision landing')
 parser.add_argument('--connect', help="dronekit vehicle connection target string, eg. /dev/ttyS0, tcp:localhost:5770, udp:localhost:14560")
 parser.add_argument('--markersize', help="Target marker size, in meters, required")
@@ -75,23 +80,36 @@ parser.add_argument('--verbose', '-v', action='store_true', help="Verbose/Debug 
 parser.add_argument('--brightness', '-b', help="Camera Brightness/Gain")
 parser.add_argument('--fourcc', '-c', help="Specify FourCC codec")
 parser.add_argument('--fakerangefinder', '-r', action='store_true', help="Fake RangeFinder Data")
+parser.add_argument('--logdir', '-l', help="Log directory, if not specified will log to stdout")
 parser.set_defaults(**defaults)
 args = parser.parse_args()
 
+# Setup logging
+console = logging.StreamHandler()
+if args.logdir:
+    # If logdir specified, create if it doesn't exist
+    if not path.exists(args.logdir):
+        makedirs(args.logdir)
+    # Add timestamped logfile out
+    logging.basicConfig(filename=args.logdir+'/vision_landing.'+nowtime+'.log', format='%(levelname)s %(asctime)s %(message)s', level=logging.DEBUG)
+else:
+    logging.basicConfig(format='%(levelname)s %(message)s', level=logging.DEBUG)
+log = logging.getLogger(__name__)
+
 # Check track_targets exists
 if not path.isfile(cwd+"/track_targets"):
-    print "Error: track_targets does not exist.  Please run 'cmake . && make' in src/ directory"
+    log.critical("Error: track_targets does not exist.  Please run 'cmake . && make' in src/ directory")
     exit(1)
     
-# Check if calibration exists
+# Check if calibration data exists
 if path.isfile(cwd+"/calibration/"+args.calibration):
     calibration = cwd+"/calibration/"+args.calibration
 elif path.isfile(args.calibration):
     calibration = args.calibration
 else:
-    print "Error: specified calibration does not exist."
+    log.critical("Error: specified calibration does not exist.")
     exit(1)
-
+    
 # Run the vision tracker as a thread
 try:
     # Define the basic arguments to track_targets
@@ -128,11 +146,11 @@ try:
     track_arguments.extend([args.input, calibration, args.markersize])
 
     # Start the tracker and attach the output to threaded reader
-    print "Starting track_targets with arguments:",track_arguments
+    log.info("Starting track_targets with arguments:" +str(track_arguments))
     track_targets = Popen(track_arguments, stdin = PIPE, stdout = PIPE, stderr = PIPE, shell = False)
     treader = ThreadedReader(track_targets.stdout)
 except Exception as error:
-    print "Error starting track_targets:", error
+    log.critical("Error starting track_targets:"+ str(error))
     exit(1)
     
 # Define function that arms and takes off, used for testing in SITL
@@ -142,31 +160,31 @@ def arm_and_takeoff(aTargetAltitude):
     Arms vehicle and fly to aTargetAltitude.
     """
 
-    print "Basic pre-arm checks"
+    log.info("Basic pre-arm checks")
     # Don't let the user try to arm until autopilot is ready
     while not vehicle.is_armable:
-        print " Waiting for vehicle to initialise..."
+        log.info(" Waiting for vehicle to initialise...")
         sleep(1)
 
         
-    print "Arming motors"
+    log.info("Arming motors")
     # Copter should arm in GUIDED mode
     vehicle.mode = VehicleMode("GUIDED")
     vehicle.armed = True
 
     while not vehicle.armed:      
-        print " Waiting for arming..."
+        log.info(" Waiting for arming...")
         sleep(1)
 
-    print "Taking off!"
+    log.info("Taking off!")
     vehicle.simple_takeoff(aTargetAltitude) # Take off to target altitude
 
     # Wait until the vehicle reaches a safe height before processing the goto (otherwise the command 
     #  after Vehicle.simple_takeoff will execute immediately).
     while True:
-        print " Altitude: ", vehicle.location.global_relative_frame.alt      
+        log.info(" Altitude: " + str(vehicle.location.global_relative_frame.alt))
         if vehicle.location.global_relative_frame.alt>=aTargetAltitude*0.95: #Trigger just below target alt.
-            print "Reached target altitude"
+            log.info("Reached target altitude")
             break
         sleep(1)
 
@@ -186,7 +204,7 @@ def send_distance_message(dist):
     vehicle.send_mavlink(msg)
     vehicle.flush()
     if args.verbose:
-        print datetime.now(),"Sending mavlink distance_message:",dist
+        log.debug("Sending mavlink distance_message:" +str(dist))
 
 # Define function to send landing_target mavlink message for mavlink based precision landing
 # http://mavlink.org/messages/common#LANDING_TARGET
@@ -204,16 +222,16 @@ def send_land_message(x,y,z):
     vehicle.send_mavlink(msg)
     vehicle.flush()
     if args.verbose:
-        print datetime.now(),"Sending mavlink landing_target:",x,y,z
+        log.debug("Sending mavlink landing_target:"+str(x)+" "+str(y)+" "+str(z))
     
 
 ### Start actual vision landing logic
 
 # Connect to the Vehicle
-print 'Connecting to vehicle on: %s' % args.connect
+log.info("Connecting to vehicle on: %s" % args.connect)
 vehicle = connect(args.connect, wait_ready=True)
 if not vehicle:
-    print "Error: Could not connect to drone"
+    log.critical("Error: Could not connect to drone")
     exit(1)
 
 # Set some parameters important to precision landing
@@ -226,7 +244,7 @@ if args.fakerangefinder:
     vehicle.parameters['RNGFND_MIN_CM'] = 1
     vehicle.parameters['RNGFND_MAX_CM'] = 10000
     vehicle.parameters['RNGFND_GNDCLEAR'] = 5
-    print "Faking RangeFinder data with distance_sensor messages"
+    log.info("Faking RangeFinder data with distance_sensor messages")
 
 # If simulator option set, perform initial takeoff and initiate land
 if args.simulator:
@@ -241,7 +259,7 @@ if args.simulator:
     arm_and_takeoff(25)
 
     # Start landing
-    print("Starting landing...")
+    log.info("Starting landing...")
     vehicle.mode = VehicleMode("LAND")
 
 # Clear the vision tracking queue, we don't want to blast mavlink messages for everything stacked up
@@ -263,7 +281,7 @@ while True:
             if trackdata[0] != "target":
                 datatype = trackdata[0]
                 if args.verbose:
-                    print datetime.now(), datatype[0].upper() + datatype[1:], trackdata[1:]
+                    log.debug(datatype[0].upper() + datatype[1:] + str(trackdata[1:]))
                 continue
 
             # Unpack and cast target data to correct types
@@ -279,12 +297,12 @@ while True:
             frame_times.append(time_taken)
             frame_times = frame_times[-5:]
             fps = len(frame_times) / sum(frame_times)
-            print datetime.now(), "Fps: ", fps, ", Alt:", vehicle.location.global_relative_frame.alt, ", Rangefinder:", vehicle.rangefinder.distance, ", Marker:", id, ", Distance:",z, "xOffset:", x, "yOffset:", y
+            logger.info("Fps: "+str(fps)+", Alt:"+ str(vehicle.location.global_relative_frame.alt)+", Rangefinder:"+ str(vehicle.rangefinder.distance)+ ", Marker:"+ str(id)+ ", Distance:"+str(z)+ "xOffset:"+str(x)+ "yOffset:"+str(y))
         except Exception as error:
-            print "Error in tracking loop:", error
+            log.warning("Error in tracking loop:"+str(error))
 
     if args.simulator and not vehicle.armed:
-        print "Landed"
+        log.info("Landed")
         break
 
 # Try to gracefully close target tracker
