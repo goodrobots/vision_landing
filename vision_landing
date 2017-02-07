@@ -62,15 +62,6 @@ cwd = path.dirname(path.abspath(__file__))
 import argparse
 import ConfigParser
 # First parse config file
-"""
-conf_parser = argparse.ArgumentParser(
-    description=__doc__,
-    formatter_class=argparse.RawDescriptionHelpFormatter,
-    add_help=False
-    )
-conf_parser.add_argument("-c", "--conf_file", help="Specify config file", metavar="FILE")
-args,remaining_argv = conf_parser.parse_known_args()
-"""
 defaults = {}
 if path.isfile(cwd+"/vision_landing.conf"):
     config = ConfigParser.SafeConfigParser()
@@ -78,8 +69,6 @@ if path.isfile(cwd+"/vision_landing.conf"):
     defaults.update(dict(config.items("Defaults")))
 
 parser = argparse.ArgumentParser(description='Vision based precision landing')
-parser.set_defaults(**defaults)
-parser.add_argument('command', help="calling command: start or stop")
 parser.add_argument('--connect', help="dronekit vehicle connection target string, eg. /dev/ttyS0, tcp:localhost:5770, udp:localhost:14560")
 parser.add_argument('--markersize', help="Target marker size, in meters, required")
 parser.add_argument('--calibration', help="camera calibration data, required")
@@ -95,6 +84,7 @@ parser.add_argument('--verbose', '-v', action='store_true', help="Verbose/Debug 
 parser.add_argument('--brightness', '-b', help="Camera Brightness/Gain")
 parser.add_argument('--fourcc', '-c', help="Specify FourCC codec")
 parser.add_argument('--fakerangefinder', '-r', action='store_true', help="Fake RangeFinder Data")
+parser.set_defaults(**defaults)
 args = parser.parse_args()
 
 # Check track_targets exists
@@ -238,13 +228,13 @@ if not vehicle:
 # Set some parameters important to precision landing
 vehicle.parameters['PLND_ENABLED'] = 1 # Companion computer
 vehicle.parameters['PLND_TYPE'] = 1
-"""
-# Following are for mavlink based rangefinder
+
+# Following are for mavlink based rangefinder (not needed for 3.5-rc2+)
 vehicle.parameters['RNGFND_TYPE'] = 10
 vehicle.parameters['RNGFND_MIN_CM'] = 1
 vehicle.parameters['RNGFND_MAX_CM'] = 10000
 vehicle.parameters['RNGFND_GNDCLEAR'] = 5
-"""
+
 """
 # Following are for SITL rangefinder
 vehicle.parameters['RNGFND_TYPE'] = 1 
@@ -305,7 +295,6 @@ while True:
         except Exception as error:
             print "Error in tracking loop:", error
 
-    #if args.simulator and ((vehicle.rangefinder.distance > 0 and vehicle.rangefinder.distance <= 0.1) or vehicle.location.global_relative_frame.alt <= 0.1):
     if args.simulator and not vehicle.armed:
         print "Landed"
         break
