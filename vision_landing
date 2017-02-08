@@ -257,6 +257,11 @@ def send_land_message(x,y,z):
 def handle_sig(signal, frame):
     log.info("Signal handler called, calling shutdown and cleanup logic")
     track_targets.terminate()
+    if sigcount > 3:
+        log.warning("Signal handler called three times, exiting immediately")
+        exit(1)
+    sigcount += 1
+    
 
 def cleanup():
     # Stop threaded reader
@@ -271,6 +276,7 @@ def cleanup():
 # Setup signal handlers
 signal.signal(signal.SIGINT, handle_sig)
 signal.signal(signal.SIGTERM, handle_sig)
+sigcount = 0
 
 # Connect to the Vehicle
 log.info("Connecting to vehicle on: %s" % args.connect)
