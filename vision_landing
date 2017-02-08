@@ -251,14 +251,11 @@ def send_land_message(x,y,z):
         log.debug("Sending mavlink landing_target:"+str(x)+" "+str(y)+" "+str(z))
     
 def handle_sig(signal, frame):
-    log.info("Signal handler called, exiting")
-    cleanup()
-    exit(0)
+    log.info("Signal handler called, calling shutdown and cleanup logic")
+    track_targets.terminate()
 
 def cleanup():
-    # Try to gracefully close target tracker
-    track_targets.terminate()
-    track_targets.wait() # wait until track_targets has gracefully shut down
+    # Stop threaded reader
     treader.stop()
     # Close connection to the drone
     vehicle.close()
@@ -326,9 +323,10 @@ frame_times = []
 start_t = time()
 
 # Now enter a loop and send mavlink messages for every event received from the target tracker
-while True:
-    line = treader.readline()
+while track_targets.returncode == None:
+    track_targets.poll() # Poll the track_targets process and populate returncode, exit main loop when track_targets shut down
 
+    line = treader.readline()
     if line:
         try:
             # Unpack data from track_targets data
@@ -338,7 +336,7 @@ while True:
             if trackdata[0] != "target":
                 datatype = trackdata[0]
                 if args.verbose:
-                    log.debug(datatype[0].upper() + datatype[1:] + str(trackdata[1:]))
+                    log.debug("track_targets: " + datatype[0].upper() + datatype[1:] + str(trackdata[1:]))
                 continue
 
             # Unpack and cast target data to correct types
@@ -363,3 +361,4 @@ while True:
         break
 
 cleanup()
+exit(0)
