@@ -19,6 +19,7 @@ from sys import exit
 from os import path, makedirs
 from math import pi
 from datetime import datetime
+import signal
 import logging
 
 # Define threaded reader class
@@ -247,8 +248,24 @@ def send_land_message(x,y,z):
     if args.verbose:
         log.debug("Sending mavlink landing_target:"+str(x)+" "+str(y)+" "+str(z))
     
+def handle_sig(signal, frame):
+    log.info("Signal handler called, exiting")
+    cleanup()
+    sleep(2)
+    exit(0)
+
+def cleanup():
+    # Try to gracefully close target tracker
+    treader.close()
+    track_targets.kill()
+    # Close connection to the drone
+    vehicle.close()
 
 ### Start actual vision landing logic
+
+# Setup signal handlers
+signal.signal(signal.SIGINT, handle_sig)
+signal.signal(signal.SIGTERM, handle_sig)
 
 # Connect to the Vehicle
 log.info("Connecting to vehicle on: %s" % args.connect)
@@ -343,9 +360,4 @@ while True:
         log.info("Landed")
         break
 
-# Try to gracefully close target tracker
-treader.close()
-track_targets.kill()
-
-# Close connection to the drone
-vehicle.close()
+cleanup()

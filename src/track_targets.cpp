@@ -17,6 +17,7 @@ Run separately with: ./track_targets -d TAG36h11 /dev/video0 calibration.yml 0.2
 **/
 
 #include <iostream>
+#include <signal.h>
 #include "args.hxx"
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
@@ -25,6 +26,12 @@ Run separately with: ./track_targets -d TAG36h11 /dev/video0 calibration.yml 0.2
 
 using namespace cv;
 using namespace aruco;
+
+// Setup sig handling
+static volatile sig_atomic_t sigflag = 0;
+void handle_sig(int sig) {
+    sigflag = 1;
+}
 
 // Define function to draw AR landing marker
 void drawARLandingCube(cv::Mat &Image, Marker &m, const CameraParameters &CP) {
@@ -80,6 +87,10 @@ void drawVectors(Mat &in, Scalar color, int lineWidth, int vOffset, int MarkerId
 
 // main..
 int main(int argc, char** argv) {
+
+    // Register signals
+    signal(SIGINT, handle_sig);
+    signal(SIGTERM, handle_sig);
 
     // Setup arguments for parser
     args::ArgumentParser parser("Track fiducial markers and estimate pose, output translation vectors for vision_landing");
@@ -254,7 +265,14 @@ int main(int argc, char** argv) {
         if (output)
             writer << rawimage;
 
+        if (sigflag) {
+            cout << "debug:signal detected, exiting" << endl;
+            break;
+        }
+        
     }
+    
+    return 0;
 
 }
 
