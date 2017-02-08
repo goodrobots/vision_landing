@@ -14,7 +14,7 @@ from subprocess import Popen, PIPE
 from dronekit import connect, VehicleMode, LocationGlobal, LocationGlobalRelative
 from pymavlink import mavutil
 from time import sleep, time
-from datetime import datetime
+from datetime import datetime, timedelta
 from sys import exit
 from os import path, makedirs
 from math import pi
@@ -48,6 +48,29 @@ class ThreadedReader:
     def close(self):
         self.stop.set()
 
+# Define tracking timer class
+class TrackTimer:
+    def __init__(self):
+        self.fctimeus = None
+        self.delta = None
+        self.debug = False
+    def update(self, timeus):
+        if self.debug:
+            print "Expected timeus: " +str(self.estimate()) +", actual timeus: " +str(timeus)
+        # Messages come in or are processed asynchronously, out of order, so a later message may have an earlier timestamp.
+        # So ignore any updates that are older than what we already know about
+        if timeus > self.fctimeus:
+            self.fctimeus = timeus
+            self.mytimeus = datetime.now()
+    def actual(self):
+        return self.fctimeus
+    def estimate(self):
+        if self.fctimeus:
+            self.delta = datetime.now() - self.mytimeus
+            return int(self.fctimeus + (self.delta.total_seconds() * 1000))
+        else:
+            return None
+    
 # Find full directory path of this script, used for loading config and other files
 cwd = path.dirname(path.abspath(__file__))
 
@@ -234,6 +257,20 @@ if not vehicle:
     log.critical("Error: Could not connect to drone")
     exit(1)
 
+# Create a new tracktimer object to try and keep sync with the flight controller
+trackfctime = TrackTimer()
+# Setup a listener for all incoming mavlink messages and update our time tracker whenever possible
+@vehicle.on_message("*")
+def listener_all(self, name, message):
+    try:
+        trackfctime.update(message.time_usec)
+    except:
+        pass
+    try:
+        trackfctime.update(message.time_boot_ms * 1000)
+    except:
+        pass
+
 # Set some parameters important to precision landing
 vehicle.parameters['PLND_ENABLED'] = 1 # Companion computer
 vehicle.parameters['PLND_TYPE'] = 1
@@ -272,6 +309,7 @@ start_t = time()
 # Now enter a loop and send mavlink messages for every event received from the target tracker
 while True:
     line = treader.readline()
+
     if line:
         try:
             # Unpack data from track_targets data
@@ -297,7 +335,7 @@ while True:
             frame_times.append(time_taken)
             frame_times = frame_times[-5:]
             fps = len(frame_times) / sum(frame_times)
-            logger.info("Fps: "+str(fps)+", Alt:"+ str(vehicle.location.global_relative_frame.alt)+", Rangefinder:"+ str(vehicle.rangefinder.distance)+ ", Marker:"+ str(id)+ ", Distance:"+str(z)+ "xOffset:"+str(x)+ "yOffset:"+str(y))
+            logger.info("Fctime:"+trackfctime.estimate()+", Fps: "+str(fps)+", Alt:"+ str(vehicle.location.global_relative_frame.alt)+", Rangefinder:"+ str(vehicle.rangefinder.distance)+ ", Marker:"+ str(id)+ ", Distance:"+str(z)+ "xOffset:"+str(x)+ "yOffset:"+str(y))
         except Exception as error:
             log.warning("Error in tracking loop:"+str(error))
 
