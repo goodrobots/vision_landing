@@ -358,7 +358,7 @@ while track_targets.returncode == None:
             frame_times.append(time_taken)
             frame_times = frame_times[-5:]
             fps = len(frame_times) / sum(frame_times)
-            logger.info("Fctime:"+trackfctime.estimate()+", Fps: "+str(fps)+", Alt:"+ str(vehicle.location.global_relative_frame.alt)+", Rangefinder:"+ str(vehicle.rangefinder.distance)+ ", Marker:"+ str(id)+ ", Distance:"+str(z)+ "xOffset:"+str(x)+ "yOffset:"+str(y))
+            log.info("Fctime:"+trackfctime.estimate()+", Fps: "+str(fps)+", Alt:"+ str(vehicle.location.global_relative_frame.alt)+", Rangefinder:"+ str(vehicle.rangefinder.distance)+ ", Marker:"+ str(id)+ ", Distance:"+str(z)+ "xOffset:"+str(x)+ "yOffset:"+str(y))
         except Exception as error:
             log.warning("Error in tracking loop:"+str(error))
 
