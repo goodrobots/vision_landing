@@ -27,9 +27,9 @@ class ThreadedReader:
     def __init__(self, stdout):
         self.stdout = stdout
         self.queue = Queue()
-        self.stop = Event()
+        self._stop = Event()
         def insertQueue(stdout, queue):
-            while True:
+            while not self.stopped():
                 line = stdout.readline()
                 if line:
                     queue.put(line)
@@ -46,8 +46,10 @@ class ThreadedReader:
     def clear(self):
         with self.queue.mutex:
             self.queue.queue.clear()
-    def close(self):
-        self.stop.set()
+    def stop(self):
+        self._stop.set()
+    def stopped(self):
+        return self._stop.isSet()
 
 # Define tracking timer class
 class TrackTimer:
@@ -251,13 +253,13 @@ def send_land_message(x,y,z):
 def handle_sig(signal, frame):
     log.info("Signal handler called, exiting")
     cleanup()
-    sleep(2)
     exit(0)
 
 def cleanup():
     # Try to gracefully close target tracker
-    treader.close()
-    track_targets.kill()
+    track_targets.terminate()
+    track_targets.wait() # wait until track_targets has gracefully shut down
+    treader.stop()
     # Close connection to the drone
     vehicle.close()
 

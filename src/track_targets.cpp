@@ -266,7 +266,7 @@ int main(int argc, char** argv) {
             writer << rawimage;
 
         if (sigflag) {
-            cout << "debug:signal detected, exiting" << endl;
+            cout << "info:signal detected:exiting track_targets" << endl;
             break;
         }
         
