@@ -178,6 +178,10 @@ try:
 except Exception as error:
     log.critical("Error starting track_targets:"+ str(error))
     exit(1)
+track_targets.poll()
+if track_targets.returncode != None:
+    log.critical("Error starting track_targets:"+ str(error))
+    exit(1)
     
 # Define function that arms and takes off, used for testing in SITL
 # Lifted from dronekit-python examples
