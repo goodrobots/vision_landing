@@ -362,7 +362,7 @@ while track_targets.returncode == None:
 
     if args.simulator and not vehicle.armed:
         log.info("Landed")
-        break
+        track_targets.terminate()
 
 cleanup()
 exit(0)
