@@ -74,10 +74,10 @@ track_targets must be compiled and installed into the main directory before visi
 You should now have a track_targets file in the same directory as the vision_landing script (the root of the vision_landing project).
 
 ### Recommended Installation  
-In order to provide startup at system boot and 'graceful' stop, a systemd manifest is provided (vision_landing.service).  To install, either alter the manifest with the full path to where vision_landing has been downloaded to (replace all instances of /usr/local/vision_landing with new path), or perhaps easier is to copy or symlink the directory to /usr/local and the provided manifest can be used without alteration.  The following should be executed from the parent directory of vision_landing (ie. cd ..):  
+In order to provide startup at system boot and 'graceful' stop, a systemd manifest is provided (vision_landing.service).  To install, either alter the manifest with the full path to where vision_landing has been downloaded to (replace all instances of /usr/local/vision_landing with new path), or perhaps easier is to copy or symlink the directory to /usr/local and the provided manifest can be used without alteration.  The following should be executed from the root of vision_landing project (ie. in the same directory as the vision_landing script and track_targets after install):  
  ```
- sudo ln -s `pwd`/vision_landing /usr/local
- sudo cp vision_landing/vision_landing.service /etc/systemd/system
+ sudo ln -s `pwd` /usr/local
+ sudo cp vision_landing.service /etc/systemd/system
  sudo systemctl daemon-reload
  ```  
 
@@ -93,28 +93,26 @@ It can be stopped by executing:
 Note that when using systemd for control, mandatory and optional parameters are set using vision_landing.conf.  
 
 ### Manual running
-vision_landing can also be run without systemd by just calling the main script with the necessary mandatory and optional parameters.  
+vision_landing can also be run without systemd by just calling the main script and relying on the config file for correct configuration, or calling with the necessary mandatory and optional parameters.  
 
 **Examples**
 ```
-./vision_landing start /dev/ttyS0 0.235 calibration/ocam5cr-calibration-640x480.yml
-./vision_landing --markerid 580 --markerdict TAG36h11 start /dev/ttyS0 0.235 calibration/ocam5cr-calibration-640x480.yml
-./vision_landing --simulator --input /dev/video2 --output "appsrc ! autovideoconvert ! v4l2video11h264enc ! h264parse ! rtph264pay config-interval=1 pt=96 ! udpsink host=192.168.1.70 port=5000 sync=false" --markerdict TAG36h11 start tcp:localhost:5777 0.235 calibration/ocam5cr-calibration-640x480.yml
-./vision_landing --input /dev/video2 --output /srv/maverick/data/video/landing.mpg --markerdict TAG36h11 start tcp:localhost:5777 0.235 calibration/ocam5cr-calibration-640x480.yml
+./vision_landing # (uses values in vision_landing.conf)
+./vision_landing --input /dev/ttyS0 --markersize 0.235 --calibration calibration/ocam5cr-calibration-640x480.yml
+./vision_landing --markerid 580 --markerdict TAG36h11 --input /dev/ttyS0 0.235 --calibration calibration/ocam5cr-calibration-640x480.yml
+./vision_landing --simulator --input /dev/video2 --output "appsrc ! autovideoconvert ! v4l2video11h264enc ! h264parse ! rtph264pay config-interval=1 pt=96 ! udpsink host=192.168.1.70 port=5000 sync=false" --markerdict TAG36h11 --input tcp:localhost:5777 --markersize 0.235 --calibration calibration/ocam5cr-calibration-640x480.yml
+./vision_landing --input /dev/video2 --output /srv/maverick/data/video/landing.mpg --markerdict TAG36h11 --input tcp:localhost:5777 --markersize 0.235 --width 1280 --height 720 --calibration calibration/ocam5cr-calibration-1280x720.yml
 ```
 
-The config file can also be used by calling vision_landing like this:  
-``` . ./vision_landing.conf; ./vision_landing $OPTS start $CONNECT_STRING $MARKER_SIZE $CALIBRATION_FILE```  
-
 ### Mandatory parameters  
- - **connectstring**: This is the dronekit connection string, eg. /dev/ttyS0 (for serial connection to FC), tcp:localhost:5770 (tcp connection to mavproxy), udp:localhost:14560 (udp connection to mavproxy).
+ - **connect**: This is the dronekit connection string, eg. /dev/ttyS0 (for serial connection to FC), tcp:localhost:5770 (tcp connection to mavproxy), udp:localhost:14560 (udp connection to mavproxy).
  - **markersize**: This is the size of the fiducial marker in meters.  So a typical april tag printed on A3 will be around 23.5cm from black edge to black edge, so the value here would be 0.235.
  - **calibration**: This is the file containing calibration data, eg. calibration/ocam5cr-calibration-640x480.yml
 
 ### Optional parameters  
-** Note that the --fakerangefinder flag is currently always needed, a PR has been submitted to Ardupilot to fix this requirement **  
+** Note that the --fakerangefinder flag is needed unless you have a proper laser rangefinder or running arducopter >3.5-rc2 **  
  - **--input**: This is the video stream 'pipeline' used to look for targets.  It defaults to /dev/video0 which is what most USB cameras show up as (/dev/video2 typically for odroid xu4 with hardware encoding activated).  Video files can be used for testing by just specifying the video file name here.  A gstreamer pipeline can also be used here as long as it ends in appsink (eg. v4l2src device=/dev/video2 ! decodebin ! videoconvert ! appsink)
- - **--output**: This is the output 'pipeline' that can be used to save the video stream with AR data overlaid.  This can either be a video file name (which will be uncompressed and very large), or you can create gstreamer pipelines.  Example pipeline for odroid xu4 with hardware encoding activated to stream h264 compressed video with AR markers in realtime would be:   
+ - **--output**: This is the output 'pipeline' that can be used to save the video stream with AR data overlaid.  This can either be a video file name (which will be uncompressed and very large), or you can create gstreamer pipelines.  Example pipeline for odroid xu4 with hardware encoding activated to stream h264 compressed video with AR markers in realtime would be (note gstreamer pipeline must start with appsrc):   
   ```appsrc ! autovideoconvert ! v4l2video11h264enc ! h264parse ! rtph264pay config-interval=1 pt=96 ! udpsink host=192.168.1.x port=5000 sync=false```
  - **--markerid**: Specify a marker ID to detect.  If specified, only a target matching this ID will be used for landing and any other target will be rejected.  If not specified, all targets in the specified or default dictionary will be detected and the closest will be chosen for landing.
  - **--markerdict**: Type of marker dictionary to use.  Only one dictionary can be detected at any one time.  Supported dictionaries are: ARUCO ARUCO_MIP_16h3 ARUCO_MIP_25h7 ARUCO_MIP_36h12 ARTOOLKITPLUS ARTOOLKITPLUSBCH TAG16h5 TAG25h7 TAG25h9 TAG36h11 TAG36h10.  Defaults to ARUCO_MIP_36h12.
@@ -123,6 +121,6 @@ The config file can also be used by calling vision_landing like this:
  - **--height**: As width, but for height.
  - **--fps**: This attempts to set frames per second of incoming video but this is often not supported by the camera driver.  It can be used as a 'fudge factor' if saved video files look too fast or slow.
  - **--brightness**: This can be used to increase or decrease gain or brightness in high or low light conditions.
- - **--fakerangefinder**: This flag tells vision_landing to also send fake rangefinder data based on distance detected from a selected target.  This is necessary for all current arducopter firmware.  A PR is submitted to make this unnecessary in the future.
+ - **--fakerangefinder**: This flag tells vision_landing to also send fake rangefinder data based on distance detected from a selected target.  This is necessary for arducopter firmware <3.5-rc2.
  - **--verbose**: Turn on some extra info/debug output
  
