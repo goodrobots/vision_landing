@@ -15,7 +15,7 @@ from dronekit import connect, VehicleMode, LocationGlobal, LocationGlobalRelativ
 from pymavlink import mavutil
 from time import sleep, time
 from datetime import datetime, timedelta
-from sys import exit
+from sys import exit, stdout, stderr
 from os import path, makedirs
 from math import pi
 from datetime import datetime
@@ -117,7 +117,7 @@ if args.logdir:
     if not path.exists(args.logdir):
         makedirs(args.logdir)
     # Add timestamped logfile out
-    logging.basicConfig(filename=args.logdir+'/vision_landing.'+nowtime+'.log', format='%(levelname)s %(asctime)s %(message)s', level=logging.DEBUG)
+    logging.basicConfig(filename=args.logdir+'/vision_landing.'+nowtime+'.log', format='%(asctime)s %(levelname)s %(message)s', level=logging.DEBUG)
 else:
     logging.basicConfig(format='%(levelname)s %(message)s', level=logging.DEBUG)
 log = logging.getLogger(__name__)
@@ -269,7 +269,10 @@ def cleanup():
     # track_targets should always be stopped by now, but be sure
     track_targets.terminate()
     # Close connection to the drone
-    vehicle.close()
+    try:
+        vehicle.close()
+    except:
+        pass
 
 ### Start actual vision landing logic
 
@@ -280,9 +283,11 @@ sigcount = 0
 
 # Connect to the Vehicle
 log.info("Connecting to vehicle on: %s" % args.connect)
-vehicle = connect(args.connect, wait_ready=True)
-if not vehicle:
+try:
+    vehicle = connect(args.connect, wait_ready=True)
+except:
     log.critical("Error: Could not connect to drone")
+    cleanup()
     exit(1)
 
 # Create a new tracktimer object to try and keep sync with the flight controller
