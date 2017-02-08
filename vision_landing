@@ -261,6 +261,8 @@ def handle_sig(signal, frame):
 def cleanup():
     # Stop threaded reader
     treader.stop()
+    # track_targets should always be stopped by now, but be sure
+    track_targets.terminate()
     # Close connection to the drone
     vehicle.close()
 
