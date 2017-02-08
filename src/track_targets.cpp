@@ -33,6 +33,34 @@ void handle_sig(int sig) {
     sigflag = 1;
 }
 
+// Setup fps tracker
+double CLOCK()
+{
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC,  &t);
+    return (t.tv_sec * 1000)+(t.tv_nsec*1e-6);
+}
+double _avgdur=0;
+double _fpsstart=0;
+double _avgfps=0;
+double _fps1sec=0;
+double avgdur(double newdur)
+{
+    _avgdur=0.98*_avgdur+0.02*newdur;
+    return _avgdur;
+}
+double avgfps()
+{
+    if(CLOCK()-_fpsstart>1000)      
+    {
+        _fpsstart=CLOCK();
+        _avgfps=0.7*_avgfps+0.3*_fps1sec;
+        _fps1sec=0;
+    }
+    _fps1sec++;
+    return _avgfps;
+}
+
 // Define function to draw AR landing marker
 void drawARLandingCube(cv::Mat &Image, Marker &m, const CameraParameters &CP) {
     Mat objectPoints(8, 3, CV_32FC1);
@@ -213,7 +241,13 @@ int main(int argc, char** argv) {
     if (dict)
         MDetector.setDictionary(args::get(dict), 0.f);
 
+    // Start framecounter at 0 for fps tracking
+    int frameno=0;
+
     while (true) {
+        // Lodge clock for start of frame
+        double framestart=CLOCK();
+        
         // Copy image from input stream to cv matrix, skip iteration if empty
         vreader >> rawimage; 
         if (rawimage.empty()) continue;
@@ -269,7 +303,16 @@ int main(int argc, char** argv) {
             cout << "info:signal detected:exiting track_targets" << endl;
             break;
         }
-        
+    
+        // Lodge clock for end of frame    
+        double framedur = CLOCK()-framestart;
+
+        // Print fps info every 100 frames if in debug mode
+        char framestr[100];
+        sprintf(framestr, "debug:avgframedur~%fms:fps~%f:frameno~%d:",avgdur(framedur),avgfps(),frameno++ );
+        if (verbose && (frameno % 100 == 1))
+            cout << framestr << endl;
+
     }
     
     return 0;
