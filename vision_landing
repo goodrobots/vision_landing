@@ -349,6 +349,7 @@ start_t = time()
 
 # Now enter a loop and send mavlink messages for every event received from the target tracker
 simulator_landflag = False
+log.info("Entering main tracking loop")
 while track_targets.returncode == None:
     track_targets.poll() # Poll the track_targets process and populate returncode, exit main loop when track_targets shut down
 
