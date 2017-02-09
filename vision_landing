@@ -253,21 +253,14 @@ def send_land_message(x,y,z):
     vehicle.flush()
     if args.verbose:
         log.debug("Sending mavlink landing_target:"+str(x)+" "+str(y)+" "+str(z))
-    
-def handle_sig(signal, frame):
-    log.info("Signal handler called, calling shutdown and cleanup logic")
-    track_targets.terminate()
-    if sigcount > 3:
-        log.warning("Signal handler called three times, exiting immediately")
-        exit(1)
-    sigcount += 1
-    
 
 def cleanup():
     # Stop threaded reader
     treader.stop()
     # track_targets should always be stopped by now, but be sure
-    track_targets.terminate()
+    track_targets.poll()
+    if track_targets.returncode == None:
+        track_targets.terminate()
     # Close connection to the drone
     try:
         vehicle.close()
@@ -277,9 +270,24 @@ def cleanup():
 ### Start actual vision landing logic
 
 # Setup signal handlers
+class SigTrack:
+    def __init__(self):
+        self.counter = 0
+    def add(self):
+        self.counter += 1
+    def count(self):
+        return self.counter
+sigtracker = SigTrack()
+def handle_sig(signal, frame):
+    log.info("Signal handler called, calling shutdown and cleanup logic")
+    track_targets.terminate()
+    sigtracker.add()
+    log.debug("Sigtracker count:"+str(sigtracker.count()))
+    if sigtracker.count() >= 3:
+        log.warning("Signal handler called three times, exiting immediately")
+        exit(1)
 signal.signal(signal.SIGINT, handle_sig)
 signal.signal(signal.SIGTERM, handle_sig)
-sigcount = 0
 
 # Connect to the Vehicle
 log.info("Connecting to vehicle on: %s" % args.connect)
@@ -325,12 +333,12 @@ if args.simulator:
     vehicle.parameters['RNGFND_PIN'] = 0
     vehicle.parameters['RNGFND_SCALING'] = 12.12
 
-    # Take off to 10m altitude
-    arm_and_takeoff(25)
-
-    # Start landing
-    log.info("Starting landing...")
-    vehicle.mode = VehicleMode("LAND")
+    # Take off to 25m altitude and start landing if not already armed
+    if not vehicle.armed:
+        arm_and_takeoff(25)
+        # Start landing
+        log.info("Starting landing...")
+        vehicle.mode = VehicleMode("LAND")
 
 # Clear the vision tracking queue, we don't want to blast mavlink messages for everything stacked up
 treader.clear()
@@ -340,6 +348,7 @@ frame_times = []
 start_t = time()
 
 # Now enter a loop and send mavlink messages for every event received from the target tracker
+simulator_landflag = False
 while track_targets.returncode == None:
     track_targets.poll() # Poll the track_targets process and populate returncode, exit main loop when track_targets shut down
 
@@ -369,13 +378,15 @@ while track_targets.returncode == None:
             frame_times.append(time_taken)
             frame_times = frame_times[-5:]
             fps = len(frame_times) / sum(frame_times)
-            log.info("Fctime:"+trackfctime.estimate()+", Fps: "+str(fps)+", Alt:"+ str(vehicle.location.global_relative_frame.alt)+", Rangefinder:"+ str(vehicle.rangefinder.distance)+ ", Marker:"+ str(id)+ ", Distance:"+str(z)+ "xOffset:"+str(x)+ "yOffset:"+str(y))
+            log.info("Fctime:"+str(trackfctime.estimate())+", Fps: "+str(fps)+", Alt:"+ str(vehicle.location.global_relative_frame.alt)+", Rangefinder:"+ str(vehicle.rangefinder.distance)+ ", Marker:"+ str(id)+ ", Distance:"+str(z)+ "xOffset:"+str(x)+ "yOffset:"+str(y))
         except Exception as error:
             log.warning("Error in tracking loop:"+str(error))
 
-    if args.simulator and not vehicle.armed:
+    if args.simulator and not vehicle.armed and not simulator_landflag:
         log.info("Landed")
         track_targets.terminate()
+        simulator_landflag = True
 
 cleanup()
+log.info("Vision_landing shutdown complete, exiting")
 exit(0)
