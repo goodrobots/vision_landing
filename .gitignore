@@ -4,4 +4,4 @@ cmake_install.cmake
 Makefile
 src/install_manifest.txt
 track_targets
-
+vision_landing.conf
