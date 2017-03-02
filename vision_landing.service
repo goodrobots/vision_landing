@@ -1,6 +1,5 @@
 [Unit]
 Description=Vision Landing System
-After=maverick-mavproxy-fc.service
 
 [Service]
 ExecStart=/usr/local/vision_landing/vision_landing
