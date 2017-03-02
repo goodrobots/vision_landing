@@ -53,7 +53,7 @@ In order to perform any accurate Computer Vision work, you must first calibrate 
 OpenCV (which is what the vision code in this project uses) uses optional 'Camera Matrix' and 'Distortion Coefficients'  matrices (collectively called intrinsics) which are used to 'undistort' the raw image for accurate further processing and can also be used to automatically calculate focal length and field of view, necessary in turn to calculate the target angular offsets for precision landing and pose estimation used for accurate distance measurements.  There are numerous calibration methods for opencv, but there is a simple interactive routine included in the Aruco software installed as a dependency, so that process is recommended and documented briefly here:  
  - Print the A4 calibration board detailed above
  - Run aruco_calibration program:  
-   ```aruco_calibration live mycamera_calibration.yml -m calibration/aruco_calibration_board_a4.yml 0.033```
+   ```aruco_calibration live mycamera_calibration.yml -m <vision_landing_dir>/calibration/aruco_calibration_board_a4.yml -size 0.033```
  - Move the calibration board so it's in every position of the screen, particularly the outer edges (this is very important to capture the distortion of the lens at it's most extreme) and press 's' to capture a calibration snapshot at each position.
  - After taking enough snapshots (more the better, at least 10 is good), press 'c' to produce the calibration.  With the above command, it will produce a 'mycamera_calibration.yml'  
 
