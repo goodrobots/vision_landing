@@ -285,14 +285,18 @@ int main(int argc, char** argv) {
                     if (verbose)
                         cout << "debug: center~" << Markers[i].getCenter() << ":area~" << Markers[i].getArea() << ":marker~" << Markers[i] << endl;
                     cout << "target:" << Markers[i].id << ":" << xoffset << ":" << yoffset << ":" << Markers[i].Tvec.at<float>(0,2) << endl;
-                    drawARLandingCube(rawimage, Markers[i], CamParam);
-                    CvDrawingUtils::draw3dAxis(rawimage, Markers[i], CamParam);
-                    drawVectors(rawimage, Scalar (0,255,0), 1, (i+1)*20, Markers[i].id, xoffset, yoffset, Markers[i].Tvec.at<float>(0,2), Markers[i].getCenter().x, Markers[i].getCenter().y);
+                    if (output) { // don't burn cpu cycles if no output
+                        drawARLandingCube(rawimage, Markers[i], CamParam);
+                        CvDrawingUtils::draw3dAxis(rawimage, Markers[i], CamParam);
+                        drawVectors(rawimage, Scalar (0,255,0), 1, (i+1)*20, Markers[i].id, xoffset, yoffset, Markers[i].Tvec.at<float>(0,2), Markers[i].getCenter().x, Markers[i].getCenter().y);
+                    }
                 }
             // Otherwise draw a red marker
             } else {
-                Markers[i].draw(rawimage, Scalar(0, 0, 255), 2, false);
-                drawVectors(rawimage, Scalar (0,0,255), 1, (i+1)*20, Markers[i].id, 0, 0, Markers[i].Tvec.at<float>(0,2), Markers[i].getCenter().x, Markers[i].getCenter().y);
+                if (output) { // don't burn cpu cycles if no output
+                    Markers[i].draw(rawimage, Scalar(0, 0, 255), 2, false);
+                    drawVectors(rawimage, Scalar (0,0,255), 1, (i+1)*20, Markers[i].id, 0, 0, Markers[i].Tvec.at<float>(0,2), Markers[i].getCenter().x, Markers[i].getCenter().y);
+                }
             }
         }
 
