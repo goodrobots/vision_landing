@@ -16,7 +16,7 @@ from pymavlink import mavutil
 from time import sleep, time
 from datetime import datetime, timedelta
 from sys import exit, stdout, stderr
-from os import path, makedirs
+from os import path, makedirs, symlink, remove
 from math import pi
 from datetime import datetime
 import signal
@@ -118,6 +118,9 @@ if args.logdir:
         makedirs(args.logdir)
     # Add timestamped logfile out
     logging.basicConfig(filename=args.logdir+'/vision_landing.'+nowtime+'.log', format='%(asctime)s %(levelname)s %(message)s', level=logging.DEBUG)
+    # Create handly symlink to current logfile
+    remove(args.logdir+'/last.log')
+    symlink(args.logdir+'/vision_landing.'+nowtime+'.log', args.logdir+'/last.log')
 else:
     logging.basicConfig(format='%(levelname)s %(message)s', level=logging.DEBUG)
 log = logging.getLogger(__name__)
