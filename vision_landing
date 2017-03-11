@@ -382,6 +382,8 @@ while track_targets.returncode == None:
             log.info("Fctime:"+str(trackfctime.estimate())+", Fps: "+str(fps)+", Alt:"+ str(vehicle.location.global_relative_frame.alt)+", Rangefinder:"+ str(vehicle.rangefinder.distance)+ ", Marker:"+ str(id)+ ", Distance:"+str(z)+ "xOffset:"+str(x)+ "yOffset:"+str(y))
         except Exception as error:
             log.warning("Error in tracking loop:"+str(error))
+    else:
+        sleep(0.001) # Add a short 1ms sleep to slow down the loop
 
     if args.simulator and not vehicle.armed and not simulator_landflag:
         log.info("Landed")
