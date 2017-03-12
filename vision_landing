@@ -18,6 +18,7 @@ from datetime import datetime, timedelta
 from sys import exit, stdout, stderr
 from os import path, makedirs, symlink, remove
 from math import pi
+from re import sub
 from datetime import datetime
 import signal
 import logging
@@ -148,7 +149,8 @@ try:
         track_arguments.extend(['-d', args.markerdict])
     # If output is set, pass it through
     if args.output:
-        track_arguments.extend(['-o', args.output])
+        args_output = sub("-xxx", "-"+str(nowtime), args.output)
+        track_arguments.extend(['-o', args_output])
     # If marker id is set, pass it through
     if args.markerid:
         track_arguments.extend(['-i', args.markerid])
