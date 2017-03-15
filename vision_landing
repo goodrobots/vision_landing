@@ -457,9 +457,9 @@ while track_targets.process.returncode == None:
     track_targets.process.poll() # Poll the track_targets process and populate returncode, exit main loop when track_targets shut down
 
     # If craft mode has changed, take action
-    if (craft.vehicle.mode == "LAND" or (craft.vehicle.mode == "LOITER" and (craft.precloiter_opt and craft.vehicle.channels[str(craft.precloiter_opt)] > 1800))) and track_targets.state != "started":
+    if (craft.vehicle.armed and craft.vehicle.mode == "LAND" or (craft.vehicle.mode == "LOITER" and (craft.precloiter_opt and craft.vehicle.channels[str(craft.precloiter_opt)] > 1800))) and track_targets.state != "started":
         track_targets.start()
-    elif (craft.vehicle.mode != "LAND" and (craft.vehicle.mode != "LOITER" and (craft.precloiter_opt and craft.vehicle.channels[str(craft.precloiter_opt)] <= 1800))) and track_targets.state == "started":
+    elif (not craft.vehicle.armed or (craft.vehicle.mode != "LAND" and (craft.vehicle.mode != "LOITER" and (craft.precloiter_opt and craft.vehicle.channels[str(craft.precloiter_opt)] <= 1800)))) and track_targets.state == "started":
         track_targets.stop()
 
     line = track_targets.reader.readline() # See if there are any tracking results in the queue
