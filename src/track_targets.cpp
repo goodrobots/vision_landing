@@ -17,7 +17,10 @@ Run separately with: ./track_targets -d TAG36h11 /dev/video0 calibration.yml 0.2
 **/
 
 #include <iostream>
+#include <string>
 #include <signal.h>
+#include <poll.h>
+#include <ctime>
 #include "args.hxx"
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
@@ -29,8 +32,18 @@ using namespace aruco;
 
 // Setup sig handling
 static volatile sig_atomic_t sigflag = 0;
+static volatile sig_atomic_t stateflag = 0; // 0 = stopped, 1 = started
 void handle_sig(int sig) {
+    cout << "SIGNAL:" << sig << ":Received" << endl;
     sigflag = 1;
+}
+void handle_sigusr1(int sig) {
+    cout << "SIGNAL:SIGUSR1:Received:" << sig << endl;
+    stateflag = 1;
+}
+void handle_sigusr2(int sig) {
+    cout << "SIGNAL:SIGUSR2:Received:" << sig << endl;
+    stateflag = 0;
 }
 
 // Setup fps tracker
@@ -115,10 +128,15 @@ void drawVectors(Mat &in, Scalar color, int lineWidth, int vOffset, int MarkerId
 
 // main..
 int main(int argc, char** argv) {
+    // Unbuffer stdout and stdin
+    cout.setf(ios::unitbuf);
+    ios_base::sync_with_stdio(false);
 
     // Register signals
     signal(SIGINT, handle_sig);
     signal(SIGTERM, handle_sig);
+    signal(SIGUSR1, handle_sigusr1);
+    signal(SIGUSR2, handle_sigusr2);
 
     // Setup arguments for parser
     args::ArgumentParser parser("Track fiducial markers and estimate pose, output translation vectors for vision_landing");
@@ -171,7 +189,7 @@ int main(int argc, char** argv) {
 
     // Bail if camera can't be opened
     if (!vreader.isOpened()) {
-        cout << "Error: Input stream can't be opened" << endl;
+        cerr << "Error: Input stream can't be opened" << endl;
         return 1;
     }
 
@@ -227,7 +245,7 @@ int main(int argc, char** argv) {
             writer.open(args::get(output), 0, inputfps, cv::Size(inputwidth, inputheight), true);
         }
         if (!writer.isOpened()) {
-            cout << "Error can't create video writer" << endl;
+            cerr << "Error can't create video writer" << endl;
             return 1;
         }
     }
@@ -244,7 +262,43 @@ int main(int argc, char** argv) {
     // Start framecounter at 0 for fps tracking
     int frameno=0;
 
+    // Setup stdin listener
+    /*
+    string incommand;
+    pollfd cinfd[1];
+    cinfd[0].fd = fileno(stdin);
+    cinfd[0].events = POLLIN;
+    */
+    
     while (true) {
+
+        // If signal for interrupt/termination was received, break out of main loop and exit
+        if (sigflag) {
+            cout << "info:signal detected:exiting track_targets" << endl;
+            break;
+        }
+
+        // Listen for commands on stdin
+        // This doesn't work yet, it does weird things as soon as something comes in on stdin
+        /*
+        if (poll(cinfd, 1, 1000))
+        {
+            cout << "INCOMING MESSAGE!:" << endl;
+            // getline(cin, incommand);
+            // cin >> incommand;
+            // cout << "MESSAGE RECEIVED!:" << incommand << endl;
+            stateflag = 1;
+            cin.clear();
+        }
+        */
+
+        // If tracking not active, skip
+        if (!stateflag) {
+            // Add a 1ms sleep to slow down the loop if nothing else is being done
+            nanosleep((const struct timespec[]){{0, 1000000L}}, NULL);
+            continue;
+        }
+        
         // Lodge clock for start of frame
         double framestart=CLOCK();
         
@@ -302,11 +356,6 @@ int main(int argc, char** argv) {
 
         if (output)
             writer << rawimage;
-
-        if (sigflag) {
-            cout << "info:signal detected:exiting track_targets" << endl;
-            break;
-        }
     
         // Lodge clock for end of frame    
         double framedur = CLOCK()-framestart;
@@ -319,6 +368,8 @@ int main(int argc, char** argv) {
 
     }
     
+    cout << "track_targets complete, exiting" << endl;
+    cout.flush();
     return 0;
 
 }
