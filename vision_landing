@@ -140,6 +140,7 @@ class Craft:
         self.connected = None
         self.vehicle = None
         self.connect(connectstr)
+        self.precloiter_opt = self.find_precloiter_opt()
     def connect(self, connectstr):
         try:
             self.vehicle = connect(connectstr, wait_ready=True)
@@ -205,7 +206,17 @@ class Craft:
                 log.info("Reached target altitude")
                 break
             sleep(1)
-
+    # Scan through option channels for one set to 39 (precision loiter)
+    def find_precloiter_opt(self):
+        _optch = None
+        for ch in range(7,16):
+            try:
+                if self.vehicle.parameters['CH'+str(ch)+'_OPT'] == 39:
+                    _optch = ch
+            except:
+                pass
+        return _optch
+        
 # Define class for signal tracking and handling
 class SigTrack:
     def __init__(self):
@@ -397,7 +408,8 @@ def listener_all(self, name, message):
 # Set some parameters important to precision landing
 craft.vehicle.parameters['PLND_ENABLED'] = 1 
 craft.vehicle.parameters['PLND_TYPE'] = 1 # Mavlink landing mode
-craft.vehicle.parameters['PLND_EST_TYPE'] = 0 # https://github.com/ArduPilot/ardupilot/pull/5491, not yet in arducopter
+if 'PLND_EST_TYPE' in craft.vehicle.parameters:
+    craft.vehicle.parameters['PLND_EST_TYPE'] = 0 # https://github.com/ArduPilot/ardupilot/pull/5491, not yet in arducopter
 
 if args.fakerangefinder:
     # Following are for mavlink based rangefinder (not needed for 3.5-rc2+)
@@ -445,9 +457,9 @@ while track_targets.process.returncode == None:
     track_targets.process.poll() # Poll the track_targets process and populate returncode, exit main loop when track_targets shut down
 
     # If craft mode has changed, take action
-    if craft.vehicle.mode == "LAND" and track_targets.state != "started":
+    if (craft.vehicle.mode == "LAND" or (craft.vehicle.mode == "LOITER" and (craft.precloiter_opt and craft.vehicle.channels[str(craft.precloiter_opt)] > 1800))) and track_targets.state != "started":
         track_targets.start()
-    elif craft.vehicle.mode != "LAND" and track_targets.state == "started":
+    elif (craft.vehicle.mode != "LAND" and (craft.vehicle.mode != "LOITER" and (craft.precloiter_opt and craft.vehicle.channels[str(craft.precloiter_opt)] <= 1800))) and track_targets.state == "started":
         track_targets.stop()
 
     line = track_targets.reader.readline() # See if there are any tracking results in the queue
