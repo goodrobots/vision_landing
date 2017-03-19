@@ -123,12 +123,12 @@ class TrackTargets:
         fps = len(self.frame_times) / sum(self.frame_times)
         log.info("Fctime:"+str(trackfctime.estimate())+", Fps: "+str(fps)+", Alt:"+ str(craft.vehicle.location.global_relative_frame.alt)+", Rangefinder:"+ str(craft.vehicle.rangefinder.distance)+ ", Marker:"+ str(id)+ ", Distance:"+str(z)+ "xOffset:"+str(x)+ "yOffset:"+str(y))
     def start(self):
-        log.info("Requesting track_targets to start tracking")
+        log.info("Requesting track_targets to start tracking:"+str(craft.vehicle.mode))
         self.state = "started"
         self.process.send_signal(signal.SIGUSR1)
         # self.process.stdin.write("BLAAAAAAH!\n") # This doesn't work yet
     def stop(self):
-        log.info("Requesting track_targets to stop tracking")
+        log.info("Requesting track_targets to stop tracking:"+str(craft.vehicle.mode))
         self.state = "stopped"
         self.process.send_signal(signal.SIGUSR2)
 
@@ -141,6 +141,8 @@ class Craft:
         self.vehicle = None
         self.connect(connectstr)
         self.precloiter_opt = self.find_precloiter_opt()
+        if self.precloiter_opt:
+            log.info("Precision loiter switch found: Channel "+str(self.precloiter_opt))
     def connect(self, connectstr):
         try:
             self.vehicle = connect(connectstr, wait_ready=True)
@@ -457,7 +459,7 @@ while track_targets.process.returncode == None:
     track_targets.process.poll() # Poll the track_targets process and populate returncode, exit main loop when track_targets shut down
 
     # If craft mode has changed, take action
-    if (craft.vehicle.armed and craft.vehicle.mode == "LAND" or (craft.vehicle.mode == "LOITER" and (craft.precloiter_opt and craft.vehicle.channels[str(craft.precloiter_opt)] > 1800))) and track_targets.state != "started":
+    if (craft.vehicle.armed and (craft.vehicle.mode == "LAND" or (craft.vehicle.mode == "LOITER" and (craft.precloiter_opt and craft.vehicle.channels[str(craft.precloiter_opt)] > 1800)))) and track_targets.state != "started":
         track_targets.start()
     elif (not craft.vehicle.armed or (craft.vehicle.mode != "LAND" and (craft.vehicle.mode != "LOITER" and (craft.precloiter_opt and craft.vehicle.channels[str(craft.precloiter_opt)] <= 1800)))) and track_targets.state == "started":
         track_targets.stop()
