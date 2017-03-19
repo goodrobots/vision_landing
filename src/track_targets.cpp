@@ -21,6 +21,7 @@ Run separately with: ./track_targets -d TAG36h11 /dev/video0 calibration.yml 0.2
 #include <signal.h>
 #include <poll.h>
 #include <ctime>
+#include <sys/select.h>
 #include "args.hxx"
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
@@ -38,11 +39,11 @@ void handle_sig(int sig) {
     sigflag = 1;
 }
 void handle_sigusr1(int sig) {
-    cout << "SIGNAL:SIGUSR1:Received:" << sig << endl;
+    cout << "SIGNAL:SIGUSR1:Received:" << sig << ":Switching on Vision Processing" << endl;
     stateflag = 1;
 }
 void handle_sigusr2(int sig) {
-    cout << "SIGNAL:SIGUSR2:Received:" << sig << endl;
+    cout << "SIGNAL:SIGUSR2:Received:" << sig << ":Switching off Vision Processing" << endl;
     stateflag = 0;
 }
 
@@ -132,12 +133,6 @@ int main(int argc, char** argv) {
     cout.setf(ios::unitbuf);
     ios_base::sync_with_stdio(false);
 
-    // Register signals
-    signal(SIGINT, handle_sig);
-    signal(SIGTERM, handle_sig);
-    signal(SIGUSR1, handle_sigusr1);
-    signal(SIGUSR2, handle_sigusr2);
-
     // Setup arguments for parser
     args::ArgumentParser parser("Track fiducial markers and estimate pose, output translation vectors for vision_landing");
     args::HelpFlag help(parser, "help", "Display this help menu", {'h', "help"});
@@ -192,6 +187,12 @@ int main(int argc, char** argv) {
         cerr << "Error: Input stream can't be opened" << endl;
         return 1;
     }
+
+    // Register signals
+    signal(SIGINT, handle_sig);
+    signal(SIGTERM, handle_sig);
+    signal(SIGUSR1, handle_sigusr1);
+    signal(SIGUSR2, handle_sigusr2);
 
     // If resolution is specified then use, otherwise use default
     int inputwidth = 640;
@@ -270,6 +271,7 @@ int main(int argc, char** argv) {
     cinfd[0].events = POLLIN;
     */
     
+    // Main loop
     while (true) {
 
         // If signal for interrupt/termination was received, break out of main loop and exit
@@ -295,9 +297,21 @@ int main(int argc, char** argv) {
         // If tracking not active, skip
         if (!stateflag) {
             // Add a 1ms sleep to slow down the loop if nothing else is being done
-            nanosleep((const struct timespec[]){{0, 1000000L}}, NULL);
+            nanosleep((const struct timespec[]){{0, 10000000L}}, NULL);
+            // If camera is started, stop and release it
+            /*
+            https://github.com/fnoop/vision_landing/issues/45
+            if (vreader.isOpened())
+                vreader.release();
+            */
             continue;
         }
+        
+        // If camera isn't running, start it
+        /*
+        if (!vreader.isOpened())
+            vreader.open(args::get(input));
+        */
         
         // Lodge clock for start of frame
         double framestart=CLOCK();
