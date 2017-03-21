@@ -87,6 +87,7 @@ class TrackTimer:
 class TrackTargets:
     def __init__(self, arguments):
         self.state = None
+        self.shutdown = False
         # Setup timing containers
         self.frame_times = []
         self.start_t = time()
@@ -131,6 +132,15 @@ class TrackTargets:
         log.info("Requesting track_targets to stop tracking:"+str(craft.vehicle.mode))
         self.state = "stopped"
         self.process.send_signal(signal.SIGUSR2)
+    def end(self):
+        log.info("Shutting down track_targets")
+        # Stop threaded reader
+        self.reader.stop()
+        # track_targets should always be stopped by now, but be sure
+        self.process.poll()
+        if self.process.returncode == None:
+            self.process.terminate()
+        self.shutdown = True
 
 # Define craft class
 class Craft:
@@ -218,7 +228,7 @@ class Craft:
             except:
                 pass
         return _optch
-        
+
 # Define class for signal tracking and handling
 class SigTrack:
     def __init__(self):
@@ -229,7 +239,7 @@ class SigTrack:
         return self.counter
     def handle_sig(self, signal, frame):
         log.info("Signal handler called, calling shutdown and cleanup logic")
-        track_targets.process.terminate()
+        track_targets.end()
         sigtracker.add()
         log.debug("Sigtracker count:"+str(sigtracker.count()))
         if sigtracker.count() >= 3:
@@ -277,6 +287,7 @@ parser.add_argument('--brightness', '-b', help="Camera Brightness/Gain")
 parser.add_argument('--fourcc', '-c', help="Specify FourCC codec")
 parser.add_argument('--fakerangefinder', '-r', action='store_true', help="Fake RangeFinder Data")
 parser.add_argument('--logdir', '-l', help="Log directory, if not specified will log to stdout")
+parser.add_argument('--controlprocessing', '-p', action='store_true', help="Control Vision Processing - enable/disable based on arming status and landing/precloiter mode")
 parser.set_defaults(**defaults)
 args = parser.parse_args()
 
@@ -314,7 +325,7 @@ else:
 if not path.isfile(cwd+"/track_targets"):
     log.critical("Error: track_targets does not exist.  Please run 'cmake . && make' in src/ directory")
     exit(1)
-    
+
 # Run the vision tracker as a thread
 try:
     # Define the basic arguments to track_targets
@@ -362,12 +373,10 @@ if track_targets.process.returncode != None:
 
 # Define a function that stops and clears up cv process
 def cleanup():
-    # Stop threaded reader
-    track_targets.reader.stop()
-    # track_targets should always be stopped by now, but be sure
+    # Do a final check to see if tracker process still running, try to shut down if so
     track_targets.process.poll()
     if track_targets.process.returncode == None:
-        track_targets.process.terminate()
+        track_targets.end()
     # Close connection to the drone
     try:
         craft.vehicle.close()
@@ -386,12 +395,14 @@ signal.signal(signal.SIGINT, sigtracker.handle_sig)
 signal.signal(signal.SIGTERM, sigtracker.handle_sig)
 
 # Connect to the Vehicle
-log.info("Connecting to vehicle on: %s" % args.connect)
+log.info("Connecting to drone on: %s" % args.connect)
 craft = Craft(args.connect)
 if not craft.connected:
     log.critical("Error: Could not connect to drone")
     cleanup()
     exit(1)
+else:
+    log.info("Connected to drone")
 
 # Create a new tracktimer object to try and keep sync with the flight controller
 trackfctime = TrackTimer()
@@ -408,6 +419,7 @@ def listener_all(self, name, message):
         pass
 
 # Set some parameters important to precision landing
+log.info("Setting flight controller parameters")
 craft.vehicle.parameters['PLND_ENABLED'] = 1 
 craft.vehicle.parameters['PLND_TYPE'] = 1 # Mavlink landing mode
 if 'PLND_EST_TYPE' in craft.vehicle.parameters:
@@ -453,16 +465,15 @@ while True:
 ### Monitor for landing/precloiter mode
 ### Listen for incoming cv tracking results
 ### --------------------------------
-simulator_landflag = False
 log.info("Entering main tracking loop")
-while track_targets.process.returncode == None:
-    track_targets.process.poll() # Poll the track_targets process and populate returncode, exit main loop when track_targets shut down
-
+while True:
     # If craft mode has changed, take action
-    if (craft.vehicle.armed and (craft.vehicle.mode == "LAND" or (craft.vehicle.mode == "LOITER" and (craft.precloiter_opt and craft.vehicle.channels[str(craft.precloiter_opt)] > 1800)))) and track_targets.state != "started":
+    if (args.controlprocessing and (craft.vehicle.armed and (craft.vehicle.mode == "LAND" or (craft.vehicle.mode == "LOITER" and (craft.precloiter_opt and craft.vehicle.channels[str(craft.precloiter_opt)] > 1800))))) and track_targets.state != "started":
         track_targets.start()
-    elif (not craft.vehicle.armed or (craft.vehicle.mode != "LAND" and (craft.vehicle.mode != "LOITER" and (craft.precloiter_opt and craft.vehicle.channels[str(craft.precloiter_opt)] <= 1800)))) and track_targets.state == "started":
+    elif (args.controlprocessing and (not craft.vehicle.armed or (craft.vehicle.mode != "LAND" and (craft.vehicle.mode != "LOITER" and (craft.precloiter_opt and craft.vehicle.channels[str(craft.precloiter_opt)] <= 1800))))) and track_targets.state == "started":
         track_targets.stop()
+    elif not args.controlprocessing and not track_targets.state:
+        track_targets.start()
 
     line = track_targets.reader.readline() # See if there are any tracking results in the queue
     if line:
@@ -471,11 +482,18 @@ while track_targets.process.returncode == None:
         # Add a short 10ms sleep to slow down the loop, otherwise it consumes 100% cpu.
         sleep(0.01)
 
-    if args.simulator and not craft.vehicle.armed and not simulator_landflag:
+    if args.simulator and not craft.vehicle.armed and not track_targets.shutdown:
         log.info("Landed")
-        track_targets.process.terminate()
-        simulator_landflag = True
+        track_targets.end()
+
+    track_targets.process.poll() # Poll the track_targets process and populate returncode, exit main loop when track_targets shut down
+    if track_targets.process.returncode != None and track_targets.shutdown:
+        log.info("Tracking process return code:"+str(track_targets.process.returncode)+", exiting main loop")
+        break
+    elif track_targets.process.returncode != None and not track_targets.shutdown:
+        log.error("Error: Tracking process shut down unexpectedly ("+str(track_targets.process.returncode)+"), exiting main loop")
+        break
 
 cleanup()
 log.info("Vision_landing shutdown complete, exiting")
-exit(0)
+exit(track_targets.process.returncode)
