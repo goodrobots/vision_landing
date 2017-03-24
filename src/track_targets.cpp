@@ -236,9 +236,9 @@ int main(int argc, char** argv) {
     const double fovy = 2 * atan(inputheight / (2 * CamParam.CameraMatrix.at<float>(1,1))) * (180.0/pi);
     cout << "info:FoVx~" << fovx << ":FoVy~" << fovy << ":vWidth~" << inputwidth << ":vHeight~" << inputheight << endl;
 
-    // Create an output object, if output specified then setup the pipeline
+    // Create an output object, if output specified then setup the pipeline unless output is set to 'window'
     VideoWriter writer;
-    if (output) {
+    if (output && args::get(output) != "window") {
         if (fourcc) {
             string _fourcc = args::get(fourcc);
             writer.open(args::get(output), CV_FOURCC(_fourcc[0], _fourcc[1], _fourcc[2], _fourcc[3]), inputfps, cv::Size(inputwidth, inputheight), true);
@@ -368,8 +368,11 @@ int main(int argc, char** argv) {
             }
         }
 
-        if (output)
+        if (output && args::get(output) != "window") {
             writer << rawimage;
+        } else if (output && args::get(output) == "window") {
+            imshow("vision_landing", rawimage);
+        }
     
         // Lodge clock for end of frame    
         double framedur = CLOCK()-framestart;
