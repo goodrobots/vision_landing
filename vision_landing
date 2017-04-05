@@ -361,7 +361,7 @@ try:
     # Add positional arguments
     track_arguments.extend([args.input, calibration, args.markersize])
     # Launch the tracker and attach the output to threaded reader
-    log.info("Launching track_targets with arguments:" +str(track_arguments))
+    log.info("Launching track_targets with arguments:" + " ".join(track_arguments))
     track_targets = TrackTargets(track_arguments)
 except Exception as error:
     log.critical("Error starting track_targets:"+ str(error))
