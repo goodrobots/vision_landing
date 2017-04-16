@@ -302,13 +302,8 @@ nowtime = now.strftime("%Y-%m-%d-%H-%M-%S")
 # Configure argument parsing
 import argparse
 import ConfigParser
-# First parse config file
-defaults = {}
-if path.isfile(cwd+"/vision_landing.conf"):
-    config = ConfigParser.SafeConfigParser()
-    config.read([cwd+"/vision_landing.conf"])
-    defaults.update(dict(config.items("Defaults")))
 parser = argparse.ArgumentParser(description='Vision based precision landing')
+parser.add_argument('--config', '-c', default=cwd+"/vision_landing.conf", help="config file location, defaults to same directory as vision_landing")
 parser.add_argument('--connect', help="dronekit vehicle connection target string, eg. /dev/ttyS0, tcp:localhost:5770, udp:localhost:14560")
 parser.add_argument('--markersize', help="Target marker size, in meters, required")
 parser.add_argument('--calibration', help="camera calibration data, required")
@@ -322,12 +317,37 @@ parser.add_argument('--height', '-g', help="Video Input Resolution - Height")
 parser.add_argument('--fps', '-f', help="Video Output FPS - Kludge factor")
 parser.add_argument('--verbose', '-v', action='store_true', help="Verbose/Debug output")
 parser.add_argument('--brightness', '-b', help="Camera Brightness/Gain")
-parser.add_argument('--fourcc', '-c', help="Specify FourCC codec")
+parser.add_argument('--fourcc', '-u', help="Specify FourCC codec")
 parser.add_argument('--fakerangefinder', '-r', action='store_true', help="Fake RangeFinder Data")
 parser.add_argument('--logdir', '-l', help="Log directory, if not specified will log to stdout")
 parser.add_argument('--controlprocessing', '-p', action='store_true', help="Control Vision Processing - enable/disable based on arming status and landing/precloiter mode")
-parser.set_defaults(**defaults)
 args = parser.parse_args()
+# First parse config file, and set defaults
+defaults = {}
+if path.isfile(args.config):
+    config = ConfigParser.SafeConfigParser()
+    config.read([args.config])
+    defaults.update(dict(config.items("Defaults")))
+    parser.set_defaults(**defaults)
+    args = parser.parse_args()
+else:
+    print
+    print "Error: Config file "+str(args.config)+" does not exist"
+    print
+    exit(1)
+    
+# If we don't have the mandatory arguments, exit
+if not args.calibration or not args.markersize or not args.connect:
+    print
+    if not args.calibration:
+        print "Error: missing required argument 'calibration'"
+    if not args.markersize:
+        print "Error: missing required argument 'markersize'"
+    if not args.connect:
+        print "Error: missing required argument 'connect'"
+    print
+    parser.print_usage()
+    exit(1)
 
 # Setup logging
 console = logging.StreamHandler()
