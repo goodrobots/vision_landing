@@ -271,6 +271,9 @@ int main(int argc, char** argv) {
     cinfd[0].events = POLLIN;
     */
     
+    // Temp declaration of marker sizes
+    map<uint32_t,float> markerSizes = { {12,0.5}, {36,0.24}, {85,0.11}, {161,0.11}, {166,0.11}, {227,0.11} };
+    
     // Main loop
     while (true) {
 
@@ -322,24 +325,50 @@ int main(int argc, char** argv) {
 
         // Detect markers
         vector< Marker > Markers=MDetector.detect(rawimage);
-        // Do pose estimation for each marker
-        for(auto & marker:Markers)
-            MTracker[marker.id].estimatePose(marker,CamParam,MarkerSize);
 
-        // If marker id is specified then look for just that id, otherwise lock on to closest marker
-        int _marker;
+        // Order the markers in ascending size - we want to start with the smallest.
+        map<float, uint32_t> markerAreas; 
+        for (auto & marker:Markers) {
+            markerAreas[marker.getArea()] = marker.id;
+        }
+
+        uint32_t _marker;
+        // If marker is set in config, use that to lock on
         if (markerid) {
             _marker = args::get(markerid);
+        // Otherwise find the smallest marker that has a size mapping
         } else {
-            double _markerdistance = 9999.99;
-            for (unsigned int i = 0; i < Markers.size(); i++) {
-                if (Markers[i].Tvec.at<float>(0,2) > 0 && Markers[i].Tvec.at<float>(0,2) < _markerdistance) {
-                    _markerdistance = Markers[i].Tvec.at<float>(0,2);
-                    _marker = Markers[i].id;
+            for (auto & markerArea:markerAreas) {
+                if (markerSizes[markerArea.second]) {
+                    _marker = markerArea.second;
+                    break;
                 }
             }
         }
+        // If a marker lock hasn't been found by this point, use the smallest found marker with the default marker size
+        if (!_marker) {
+            _marker = markerAreas.begin()->second;
+        }
 
+        //  Iterate through the markers, in order of size
+        for (auto & markerArea:markerAreas) {
+            float _size;
+            // If marker size mapping exists for this marker, use it for pose estimation
+            if (markerSizes[markerArea.second]) {
+                _size = markerSizes[markerArea.second];
+            // Otherwise use generic marker size
+            } else if (MarkerSize) {
+                _size = MarkerSize;
+            }
+            // Find the Marker in the Markers map and do pose estimation.  I'm sure there's a better way of iterating through the map..
+            for (unsigned int i = 0; i < Markers.size(); i++) {
+                if (Markers[i].id == markerArea.second)  {
+                    // cout << "markerArea:" << markerArea.first << ":" << markerArea.second << ":" << _size << ":" << Markers[i].id << endl;
+                    MTracker[markerArea.second].estimatePose(Markers[i],CamParam,_size);
+                }
+            }
+        }
+    
         // Loop through each detected marker
         for (unsigned int i = 0; i < Markers.size(); i++) {
             // If marker id was found, draw a green marker
