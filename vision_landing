@@ -85,16 +85,54 @@ class TrackTimer:
 
 # Define target tracking class
 class TrackTargets:
-    def __init__(self, arguments):
+    def __init__(self, args, calibration):
         self.state = None
         self.shutdown = False
         # Setup timing containers
         self.frame_times = []
         self.start_t = time()
+        # Work out starting parameters
+        self.setup(args, calibration)
         # Launch tracking process and process output
-        self.launch(arguments)
-    def launch(self, arguments):
-        self.process = Popen(arguments, stdin = PIPE, stdout = PIPE, stderr = PIPE, shell = False, bufsize=1)
+        log.info("Launching track_targets with arguments:" + " ".join(self.track_arguments))
+        self.launch()
+    def setup(self, args, calibration):
+        # Define the basic arguments to track_targets
+        self.track_arguments = [cwd+'/track_targets']
+        # If marker dictionary is set, pass it through
+        if args.markerdict:
+            self.track_arguments.extend(['-d', args.markerdict])
+        # If output is set, pass it through
+        if args.output:
+            now = datetime.now()
+            nowtime = now.strftime("%Y-%m-%d-%H-%M-%S")
+            args_output = sub("-xxx", "-"+str(nowtime), args.output)
+            self.track_arguments.extend(['-o', args_output])
+        # If marker id is set, pass it through
+        if args.markerid:
+            self.track_arguments.extend(['-i', args.markerid])
+        # If width is set, pass it through
+        if args.width:
+            self.track_arguments.extend(['-w', args.width])
+        # If height is set, pass it through
+        if args.height:
+            self.track_arguments.extend(['-g', args.height])
+        # If fps is set, pass it through
+        if args.fps:
+            self.track_arguments.extend(['-f', args.fps])
+        # If verbose is set, pass it through
+        if args.verbose:
+            self.track_arguments.extend(['-v'])
+        # If brightness is set, pass it through
+        if args.brightness:
+            self.track_arguments.extend(['-b', args.brightness])
+        # If fourcc codec is set, pass it through
+        if args.fourcc:
+            self.track_arguments.extend(['-c', args.fourcc])
+        # Add positional arguments
+        self.track_arguments.extend([args.input, calibration, args.markersize])
+    def launch(self):
+        self.process = Popen(self.track_arguments, stdin = PIPE, stdout = PIPE, stderr = PIPE, shell = False, bufsize=1)
         self.reader = ThreadedReader(self.process.stdout, self.process.stderr)
     def processline(self, line):
         # Unpack data from track_targets data
@@ -328,41 +366,7 @@ if not path.isfile(cwd+"/track_targets"):
 
 # Run the vision tracker as a thread
 try:
-    # Define the basic arguments to track_targets
-    track_arguments = [cwd+'/track_targets']
-    # If marker dictionary is set, pass it through
-    if args.markerdict:
-        track_arguments.extend(['-d', args.markerdict])
-    # If output is set, pass it through
-    if args.output:
-        args_output = sub("-xxx", "-"+str(nowtime), args.output)
-        track_arguments.extend(['-o', args_output])
-    # If marker id is set, pass it through
-    if args.markerid:
-        track_arguments.extend(['-i', args.markerid])
-    # If width is set, pass it through
-    if args.width:
-        track_arguments.extend(['-w', args.width])
-    # If height is set, pass it through
-    if args.height:
-        track_arguments.extend(['-g', args.height])
-    # If fps is set, pass it through
-    if args.fps:
-        track_arguments.extend(['-f', args.fps])
-    # If verbose is set, pass it through
-    if args.verbose:
-        track_arguments.extend(['-v'])
-    # If brightness is set, pass it through
-    if args.brightness:
-        track_arguments.extend(['-b', args.brightness])
-    # If fourcc codec is set, pass it through
-    if args.fourcc:
-        track_arguments.extend(['-c', args.fourcc])
-    # Add positional arguments
-    track_arguments.extend([args.input, calibration, args.markersize])
-    # Launch the tracker and attach the output to threaded reader
-    log.info("Launching track_targets with arguments:" + " ".join(track_arguments))
-    track_targets = TrackTargets(track_arguments)
+    track_targets = TrackTargets(args, calibration)
 except Exception as error:
     log.critical("Error starting track_targets:"+ str(error))
     exit(1)
@@ -491,8 +495,10 @@ while True:
         log.info("Tracking process return code:"+str(track_targets.process.returncode)+", exiting main loop")
         break
     elif track_targets.process.returncode != None and not track_targets.shutdown:
-        log.error("Error: Tracking process shut down unexpectedly ("+str(track_targets.process.returncode)+"), exiting main loop")
-        break
+        log.error("Error: Tracking process shut down unexpectedly ("+str(track_targets.process.returncode)+"), restarting")
+        track_targets = TrackTargets(args, calibration)
+        sleep(1)
+        track_targets.process.poll()
 
 cleanup()
 log.info("Vision_landing shutdown complete, exiting")
