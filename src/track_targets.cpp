@@ -17,6 +17,7 @@ Run separately with: ./track_targets -d TAG36h11 /dev/video0 calibration.yml 0.2
 **/
 
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <signal.h>
 #include <poll.h>
@@ -137,6 +138,7 @@ int main(int argc, char** argv) {
     args::ArgumentParser parser("Track fiducial markers and estimate pose, output translation vectors for vision_landing");
     args::HelpFlag help(parser, "help", "Display this help menu", {'h', "help"});
     args::Flag verbose(parser, "verbose", "Verbose", {'v', "verbose"});
+    args::ValueFlag<string> sizemapping(parser, "sizemapping", "Marker Size Mappings, in marker_id:size format, comma separated", {'z', "sizemapping"});
     args::ValueFlag<int> markerid(parser, "markerid", "Marker ID", {'i', "id"});
     args::ValueFlag<string> dict(parser, "dict", "Marker Dictionary", {'d', "dict"});
     args::ValueFlag<string> output(parser, "output", "Output Stream", {'o', "output"});
@@ -271,9 +273,27 @@ int main(int argc, char** argv) {
     cinfd[0].events = POLLIN;
     */
     
-    // Temp declaration of marker sizes
-    map<uint32_t,float> markerSizes = { {12,0.5}, {36,0.24}, {85,0.11}, {161,0.11}, {166,0.11}, {227,0.11} };
-    
+    // Create a map of marker sizes from 'sizemapping' config setting
+    map<uint32_t,float> markerSizes;
+    stringstream ss(args::get(sizemapping));
+    // First split each mapping into a vector
+    vector<string> _size_mappings;
+    string _size_mapping;
+    while(std::getline(ss, _size_mapping, ',')) {
+        _size_mappings.push_back( _size_mapping );
+    }
+    // Next tokenize each vector element into the markerSizes map
+    for (std::string const & _s : _size_mappings) {
+        auto _i = _s.find(':');
+        markerSizes[atoi(_s.substr(0,_i).data())] = atof(_s.substr(_i+1).data());
+    }
+    // Debug print the constructed map
+    cout << "info:Size Mappings:";
+    for (const auto &p : markerSizes) {
+        cout << p.first << "=" << p.second << ", ";
+    }
+    cout << endl;
+
     // Main loop
     while (true) {
 

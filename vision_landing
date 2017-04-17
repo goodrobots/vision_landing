@@ -129,6 +129,9 @@ class TrackTargets:
         # If fourcc codec is set, pass it through
         if args.fourcc:
             self.track_arguments.extend(['-c', args.fourcc])
+        # If sizemapping is set, pass it through
+        if args.sizemapping:
+            self.track_arguments.extend(['-z', args.sizemapping])
         # Add positional arguments
         self.track_arguments.extend([args.input, calibration, args.markersize])
     def launch(self):
@@ -306,6 +309,7 @@ parser = argparse.ArgumentParser(description='Vision based precision landing')
 parser.add_argument('--config', '-c', default=cwd+"/vision_landing.conf", help="config file location, defaults to same directory as vision_landing")
 parser.add_argument('--connect', help="dronekit vehicle connection target string, eg. /dev/ttyS0, tcp:localhost:5770, udp:localhost:14560")
 parser.add_argument('--markersize', help="Target marker size, in meters, required")
+parser.add_argument('--sizemapping', '-z', help="Marker Size Mappings, in marker_id:size format, comma separated")
 parser.add_argument('--calibration', help="camera calibration data, required")
 parser.add_argument('--input', '-i', default="/dev/video0", help="camera input, defaults to /dev/video0")
 parser.add_argument('--output', '-o', help="gstreamer output pipeline, defaults to none")
