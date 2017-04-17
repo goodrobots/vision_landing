@@ -400,7 +400,7 @@ int main(int argc, char** argv) {
                     double xoffset = (Markers[i].getCenter().x - inputwidth / 2.0) * (fovx * (pi/180)) / inputwidth;
                     double yoffset = (Markers[i].getCenter().y - inputheight / 2.0) * (fovy * (pi/180)) / inputheight;
                     if (verbose)
-                        cout << "debug: center~" << Markers[i].getCenter() << ":area~" << Markers[i].getArea() << ":marker~" << Markers[i] << endl;
+                        cout << "debug:center~" << Markers[i].getCenter() << ":area~" << Markers[i].getArea() << ":marker~" << Markers[i] << endl;
                     cout << "target:" << Markers[i].id << ":" << xoffset << ":" << yoffset << ":" << Markers[i].Tvec.at<float>(0,2) << endl;
                     if (output) { // don't burn cpu cycles if no output
                         drawARLandingCube(rawimage, Markers[i], CamParam);
