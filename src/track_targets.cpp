@@ -19,6 +19,7 @@ Run separately with: ./track_targets -d TAG36h11 /dev/video0 calibration.yml 0.2
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <queue>
 #include <signal.h>
 #include <poll.h>
 #include <ctime>
@@ -126,6 +127,32 @@ void drawVectors(Mat &in, Scalar color, int lineWidth, int vOffset, int MarkerId
     sprintf(cad, "ID:%i, Distance:%0.3fm, X:%0.3f, Y:%0.3f, cX:%0.3f, cY:%0.3f", MarkerId, Distance, X, Y, cX, cY);
     Point cent(10, vOffset);
     cv::putText(in, cad, cent, FONT_HERSHEY_SIMPLEX, std::max(0.5f,float(lineWidth)*0.3f), color, lineWidth);
+}
+
+// Summarise a marker history over the past 10 frames
+int markerHistory(map<uint32_t, queue<int>> &marker_history, uint32_t thisId) {
+    // Work out current history for this marker
+    uint32_t histsum = 0;
+    for (unsigned int j = 0; j < 10; j++) {
+        uint32_t _val = marker_history[thisId].front(); // fetch value off front of queue
+        histsum += _val; // add value to history sum
+        marker_history[thisId].pop(); // pop value off front of queue
+        marker_history[thisId].push(_val); // push value back onto end of queue
+    }
+    return histsum;
+}
+
+// Change active marker and reset all marker histories
+void changeActiveMarker(map<uint32_t, queue<int>> &marker_history, uint32_t &active_marker, uint32_t newId) {
+    // Set the new marker as active
+    active_marker = newId;
+    
+    // Reset all marker histories.  This ensures that another marker change can't happen for at least 10 frames
+    for (auto & markerhist:marker_history) {
+        for (unsigned int j = 0; j < 10; j++) {
+            marker_history[markerhist.first].push(0); marker_history[markerhist.first].pop();
+        }
+    }
 }
 
 // main..
@@ -256,8 +283,9 @@ int main(int argc, char** argv) {
     // Setup the marker detection
     double MarkerSize = args::get(markersize);
     MarkerDetector MDetector;
-    MDetector.setThresholdParams(7, 7);
-    MDetector.setThresholdParamRange(2, 0);
+    // MDetector.enableErosion(disable); // only needed for chessboards
+    // MDetector.setThresholdParams(7, 7);
+    // MDetector.setThresholdParamRange(2, 0);
     std::map<uint32_t,MarkerPoseTracker> MTracker; // use a map so that for each id, we use a different pose tracker
     if (dict)
         MDetector.setDictionary(args::get(dict), 0.f);
@@ -294,6 +322,11 @@ int main(int argc, char** argv) {
     }
     cout << endl;
 
+    // Setup marker thresholding
+    uint32_t active_marker;
+    // Use a map of queues to track state of each marker in the last x frames
+    map<uint32_t, queue<int>> marker_history;
+    
     // Main loop
     while (true) {
 
@@ -348,29 +381,65 @@ int main(int argc, char** argv) {
 
         // Order the markers in ascending size - we want to start with the smallest.
         map<float, uint32_t> markerAreas; 
+        map<uint32_t, bool> markerIds;
         for (auto & marker:Markers) {
             markerAreas[marker.getArea()] = marker.id;
+            markerIds[marker.id] = true;
+            // If the marker doesn't already exist in the threshold tracking, add and populate with full set of zeros
+            if (marker_history.count(marker.id) == 0) {
+                for (unsigned int i=0; i<10; i++) marker_history[marker.id].push(0);
+            }
         }
 
-        uint32_t _marker;
+        // Iterate through marker history and update for this frame
+        for (auto & markerhist:marker_history) {
+            // If marker was detected in this frame, push a 1
+            if (markerIds.count(markerhist.first)) {
+                markerhist.second.push(1);
+            // Otherwise, push a 0
+            } else {
+                markerhist.second.push(0);
+            }
+            // If the marker history has reached history limit, pop the oldest element
+            if (markerhist.second.size() > 10) {
+                markerhist.second.pop();
+            }
+            
+        }
+        
         // If marker is set in config, use that to lock on
         if (markerid) {
-            _marker = args::get(markerid);
+            active_marker = args::get(markerid);
         // Otherwise find the smallest marker that has a size mapping
         } else {
             for (auto & markerArea:markerAreas) {
-                if (markerSizes[markerArea.second]) {
-                    _marker = markerArea.second;
-                    break;
+                uint32_t thisId = markerArea.second;
+                if (markerSizes[thisId]) {
+                    // If the history threshold for this marker is >50%, then set as the active marker and clear marker histories.  Otherwise, skip to the next sized marker.
+                    uint32_t histsum = markerHistory(marker_history, thisId);
+                    if (histsum > 5 && active_marker != thisId) {
+                        changeActiveMarker(marker_history, active_marker, thisId);
+                        cout << "debug:changing active_marker:" << thisId << endl;
+                        break;
+                    }
                 }
             }
         }
         // If a marker lock hasn't been found by this point, use the smallest found marker with the default marker size
-        if (!_marker) {
-            _marker = markerAreas.begin()->second;
+        if (!active_marker) {
+            for (auto & markerArea:markerAreas) {
+                uint32_t thisId = markerArea.second;
+                // If the history threshold for this marker is >50%, then set as the active marker and clear marker histories.  Otherwise, skip to the next sized marker.
+                uint32_t histsum = markerHistory(marker_history, thisId);
+                if (histsum > 5) {
+                    changeActiveMarker(marker_history, active_marker, thisId); 
+                    cout << "debug:changing active_marker:" << thisId << endl;
+                    break;
+                }
+            }
         }
 
-        //  Iterate through the markers, in order of size
+        // Iterate through the markers, in order of size, and do pose estimation
         for (auto & markerArea:markerAreas) {
             float _size;
             // If marker size mapping exists for this marker, use it for pose estimation
@@ -383,16 +452,15 @@ int main(int argc, char** argv) {
             // Find the Marker in the Markers map and do pose estimation.  I'm sure there's a better way of iterating through the map..
             for (unsigned int i = 0; i < Markers.size(); i++) {
                 if (Markers[i].id == markerArea.second)  {
-                    // cout << "markerArea:" << markerArea.first << ":" << markerArea.second << ":" << _size << ":" << Markers[i].id << endl;
                     MTracker[markerArea.second].estimatePose(Markers[i],CamParam,_size);
                 }
             }
         }
     
-        // Loop through each detected marker
+        // Iterate through each detected marker and send data for estimated marker and draw green AR cube, otherwise draw red AR square
         for (unsigned int i = 0; i < Markers.size(); i++) {
-            // If marker id was found, draw a green marker
-            if (Markers[i].id == _marker) {
+            // If marker id matches current active marker, draw a green AR cube
+            if (Markers[i].id == active_marker) {
                 Markers[i].draw(rawimage, Scalar(0, 255, 0), 2, false);
                 // If pose estimation was successful, draw AR cube and distance
                 if (Markers[i].Tvec.at<float>(0,2) > 0) {
@@ -400,7 +468,7 @@ int main(int argc, char** argv) {
                     double xoffset = (Markers[i].getCenter().x - inputwidth / 2.0) * (fovx * (pi/180)) / inputwidth;
                     double yoffset = (Markers[i].getCenter().y - inputheight / 2.0) * (fovy * (pi/180)) / inputheight;
                     if (verbose)
-                        cout << "debug:center~" << Markers[i].getCenter() << ":area~" << Markers[i].getArea() << ":marker~" << Markers[i] << endl;
+                        cout << "debug:active_marker:" << active_marker << ":center~" << Markers[i].getCenter() << ":area~" << Markers[i].getArea() << ":marker~" << Markers[i] << endl;
                     cout << "target:" << Markers[i].id << ":" << xoffset << ":" << yoffset << ":" << Markers[i].Tvec.at<float>(0,2) << endl;
                     if (output) { // don't burn cpu cycles if no output
                         drawARLandingCube(rawimage, Markers[i], CamParam);
@@ -408,7 +476,7 @@ int main(int argc, char** argv) {
                         drawVectors(rawimage, Scalar (0,255,0), 1, (i+1)*20, Markers[i].id, xoffset, yoffset, Markers[i].Tvec.at<float>(0,2), Markers[i].getCenter().x, Markers[i].getCenter().y);
                     }
                 }
-            // Otherwise draw a red marker
+            // Otherwise draw a red square
             } else {
                 if (output) { // don't burn cpu cycles if no output
                     Markers[i].draw(rawimage, Scalar(0, 0, 255), 2, false);
