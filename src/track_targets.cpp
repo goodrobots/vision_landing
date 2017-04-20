@@ -411,12 +411,15 @@ int main(int argc, char** argv) {
         // Iterate through marker history and update for this frame
         for (auto & markerhist:marker_history_queue) {
             // If marker was detected in this frame, push a 1
+            /*
             if (markerIds.count(markerhist.first)) {
                 markerhist.second.push(1);
             // Otherwise, push a 0
             } else {
                 markerhist.second.push(0);
             }
+            */
+            (markerIds.count(markerhist.first)) ? markerhist.second.push(1) : markerhist.second.push(0);
             // If the marker history has reached history limit, pop the oldest element
             if (markerhist.second.size() > marker_history) {
                 markerhist.second.pop();
