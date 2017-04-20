@@ -130,27 +130,27 @@ void drawVectors(Mat &in, Scalar color, int lineWidth, int vOffset, int MarkerId
 }
 
 // Summarise a marker history over the past 10 frames
-int markerHistory(map<uint32_t, queue<int>> &marker_history, uint32_t thisId) {
+int markerHistory(map<uint32_t, queue<int>> &marker_history_queue, uint32_t thisId, uint32_t marker_history) {
     // Work out current history for this marker
     uint32_t histsum = 0;
-    for (unsigned int j = 0; j < 10; j++) {
-        uint32_t _val = marker_history[thisId].front(); // fetch value off front of queue
+    for (unsigned int j = 0; j < marker_history; j++) {
+        uint32_t _val = marker_history_queue[thisId].front(); // fetch value off front of queue
         histsum += _val; // add value to history sum
-        marker_history[thisId].pop(); // pop value off front of queue
-        marker_history[thisId].push(_val); // push value back onto end of queue
+        marker_history_queue[thisId].pop(); // pop value off front of queue
+        marker_history_queue[thisId].push(_val); // push value back onto end of queue
     }
     return histsum;
 }
 
 // Change active marker and reset all marker histories
-void changeActiveMarker(map<uint32_t, queue<int>> &marker_history, uint32_t &active_marker, uint32_t newId) {
+void changeActiveMarker(map<uint32_t, queue<int>> &marker_history_queue, uint32_t &active_marker, uint32_t newId, uint32_t marker_history) {
     // Set the new marker as active
     active_marker = newId;
     
     // Reset all marker histories.  This ensures that another marker change can't happen for at least 10 frames
-    for (auto & markerhist:marker_history) {
-        for (unsigned int j = 0; j < 10; j++) {
-            marker_history[markerhist.first].push(0); marker_history[markerhist.first].pop();
+    for (auto & markerhist:marker_history_queue) {
+        for (unsigned int j = 0; j < marker_history; j++) {
+            marker_history_queue[markerhist.first].push(0); marker_history_queue[markerhist.first].pop();
         }
     }
 }
@@ -165,7 +165,6 @@ int main(int argc, char** argv) {
     args::ArgumentParser parser("Track fiducial markers and estimate pose, output translation vectors for vision_landing");
     args::HelpFlag help(parser, "help", "Display this help menu", {'h', "help"});
     args::Flag verbose(parser, "verbose", "Verbose", {'v', "verbose"});
-    args::ValueFlag<string> sizemapping(parser, "sizemapping", "Marker Size Mappings, in marker_id:size format, comma separated", {'z', "sizemapping"});
     args::ValueFlag<int> markerid(parser, "markerid", "Marker ID", {'i', "id"});
     args::ValueFlag<string> dict(parser, "dict", "Marker Dictionary", {'d', "dict"});
     args::ValueFlag<string> output(parser, "output", "Output Stream", {'o', "output"});
@@ -173,6 +172,9 @@ int main(int argc, char** argv) {
     args::ValueFlag<int> height(parser, "height", "Video Input Resolution - Height", {'g', "height"});
     args::ValueFlag<int> fps(parser, "fps", "Video Output FPS - Kludge factor", {'f', "fps"});
     args::ValueFlag<double> brightness(parser, "brightness", "Camera Brightness/Gain", {'b', "brightness"});
+    args::ValueFlag<string> sizemapping(parser, "sizemapping", "Marker Size Mappings, in marker_id:size format, comma separated", {'z', "sizemapping"});
+    args::ValueFlag<int> markerhistory(parser, "markerhistory", "Marker tracking history, in frames", {"markerhistory"});
+    args::ValueFlag<int> markerthreshold(parser, "markerthreshold", "Marker tracking threshold, percentage", {"markerthreshold"});
     args::ValueFlag<string> fourcc(parser, "fourcc", "FourCC CoDec code", {'c', "fourcc"});
     args::Positional<string> input(parser, "input", "Input Stream");
     args::Positional<string> calibration(parser, "calibration", "Calibration Data");
@@ -283,9 +285,8 @@ int main(int argc, char** argv) {
     // Setup the marker detection
     double MarkerSize = args::get(markersize);
     MarkerDetector MDetector;
-    // MDetector.enableErosion(disable); // only needed for chessboards
-    // MDetector.setThresholdParams(7, 7);
-    // MDetector.setThresholdParamRange(2, 0);
+    MDetector.setThresholdParams(7, 7);
+    MDetector.setThresholdParamRange(2, 0);
     std::map<uint32_t,MarkerPoseTracker> MTracker; // use a map so that for each id, we use a different pose tracker
     if (dict)
         MDetector.setDictionary(args::get(dict), 0.f);
@@ -325,7 +326,23 @@ int main(int argc, char** argv) {
     // Setup marker thresholding
     uint32_t active_marker;
     // Use a map of queues to track state of each marker in the last x frames
-    map<uint32_t, queue<int>> marker_history;
+    map<uint32_t, queue<int>> marker_history_queue;
+    
+    // If marker history or threshold is set in parameters use them, otherwise set defaults
+    uint32_t marker_history;
+    if (args::get(markerhistory)) {
+        marker_history = args::get(markerhistory);
+    } else {
+        marker_history = 15;
+    }
+    cout << "debug:markerhistory:" << marker_history << endl;
+    uint32_t marker_threshold;
+    if (args::get(markerthreshold)) {
+        marker_threshold = args::get(markerthreshold);
+    } else {
+        marker_threshold = 50;
+    }
+    cout << "debug:markerthreshold:" << marker_threshold << endl;
     
     // Main loop
     while (true) {
@@ -386,13 +403,13 @@ int main(int argc, char** argv) {
             markerAreas[marker.getArea()] = marker.id;
             markerIds[marker.id] = true;
             // If the marker doesn't already exist in the threshold tracking, add and populate with full set of zeros
-            if (marker_history.count(marker.id) == 0) {
-                for (unsigned int i=0; i<10; i++) marker_history[marker.id].push(0);
+            if (marker_history_queue.count(marker.id) == 0) {
+                for (unsigned int i=0; i<marker_history; i++) marker_history_queue[marker.id].push(0);
             }
         }
 
         // Iterate through marker history and update for this frame
-        for (auto & markerhist:marker_history) {
+        for (auto & markerhist:marker_history_queue) {
             // If marker was detected in this frame, push a 1
             if (markerIds.count(markerhist.first)) {
                 markerhist.second.push(1);
@@ -401,7 +418,7 @@ int main(int argc, char** argv) {
                 markerhist.second.push(0);
             }
             // If the marker history has reached history limit, pop the oldest element
-            if (markerhist.second.size() > 10) {
+            if (markerhist.second.size() > marker_history) {
                 markerhist.second.pop();
             }
             
@@ -416,9 +433,9 @@ int main(int argc, char** argv) {
                 uint32_t thisId = markerArea.second;
                 if (markerSizes[thisId]) {
                     // If the history threshold for this marker is >50%, then set as the active marker and clear marker histories.  Otherwise, skip to the next sized marker.
-                    uint32_t histsum = markerHistory(marker_history, thisId);
-                    if (histsum > 5 && active_marker != thisId) {
-                        changeActiveMarker(marker_history, active_marker, thisId);
+                    uint32_t histsum = markerHistory(marker_history_queue, thisId, marker_history);
+                    if (histsum > (marker_history / (100/marker_threshold)) && active_marker != thisId) {
+                        changeActiveMarker(marker_history_queue, active_marker, thisId, marker_history);
                         cout << "debug:changing active_marker:" << thisId << endl;
                         break;
                     }
@@ -430,9 +447,9 @@ int main(int argc, char** argv) {
             for (auto & markerArea:markerAreas) {
                 uint32_t thisId = markerArea.second;
                 // If the history threshold for this marker is >50%, then set as the active marker and clear marker histories.  Otherwise, skip to the next sized marker.
-                uint32_t histsum = markerHistory(marker_history, thisId);
-                if (histsum > 5) {
-                    changeActiveMarker(marker_history, active_marker, thisId); 
+                uint32_t histsum = markerHistory(marker_history_queue, thisId, marker_history);
+                if (histsum > (marker_history / (100/marker_threshold))) {
+                    changeActiveMarker(marker_history_queue, active_marker, thisId, marker_history); 
                     cout << "debug:changing active_marker:" << thisId << endl;
                     break;
                 }
