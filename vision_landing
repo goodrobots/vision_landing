@@ -458,8 +458,8 @@ def listener_all(self, name, message):
 log.info("Setting flight controller parameters")
 craft.vehicle.parameters['PLND_ENABLED'] = 1 
 craft.vehicle.parameters['PLND_TYPE'] = 1 # Mavlink landing mode
-if 'PLND_EST_TYPE' in craft.vehicle.parameters:
-    craft.vehicle.parameters['PLND_EST_TYPE'] = 0 # https://github.com/ArduPilot/ardupilot/pull/5491, not yet in arducopter
+#if 'PLND_EST_TYPE' in craft.vehicle.parameters:
+    # craft.vehicle.parameters['PLND_EST_TYPE'] = 0 # https://github.com/ArduPilot/ardupilot/pull/5491, not yet in arducopter
 
 if args.fakerangefinder:
     # Following are for mavlink based rangefinder (not needed for 3.5-rc2+)
