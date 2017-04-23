@@ -147,7 +147,7 @@ void changeActiveMarker(map<uint32_t, queue<int>> &marker_history_queue, uint32_
     // Set the new marker as active
     active_marker = newId;
     
-    // Reset all marker histories.  This ensures that another marker change can't happen for at least 10 frames
+    // Reset all marker histories.  This ensures that another marker change can't happen for at least x frames where x is history size
     for (auto & markerhist:marker_history_queue) {
         for (unsigned int j = 0; j < marker_history; j++) {
             marker_history_queue[markerhist.first].push(0); marker_history_queue[markerhist.first].pop();
@@ -210,7 +210,7 @@ int main(int argc, char** argv) {
     
     // Setup core objects
     aruco::CameraParameters CamParam;
-    cv::Mat rawimage;
+    Mat rawimage;
     VideoCapture vreader(args::get(input));
 
     // Bail if camera can't be opened
@@ -335,21 +335,21 @@ int main(int argc, char** argv) {
     } else {
         marker_history = 15;
     }
-    cout << "debug:markerhistory:" << marker_history << endl;
+    cout << "debug:Marker History:" << marker_history << endl;
     uint32_t marker_threshold;
     if (args::get(markerthreshold)) {
         marker_threshold = args::get(markerthreshold);
     } else {
         marker_threshold = 50;
     }
-    cout << "debug:markerthreshold:" << marker_threshold << endl;
+    cout << "debug:Marker Threshold:" << marker_threshold << endl;
     
     // Main loop
     while (true) {
 
         // If signal for interrupt/termination was received, break out of main loop and exit
         if (sigflag) {
-            cout << "info:signal detected:exiting track_targets" << endl;
+            cout << "info:Signal Detected:Exiting track_targets" << endl;
             break;
         }
 
@@ -411,14 +411,6 @@ int main(int argc, char** argv) {
         // Iterate through marker history and update for this frame
         for (auto & markerhist:marker_history_queue) {
             // If marker was detected in this frame, push a 1
-            /*
-            if (markerIds.count(markerhist.first)) {
-                markerhist.second.push(1);
-            // Otherwise, push a 0
-            } else {
-                markerhist.second.push(0);
-            }
-            */
             (markerIds.count(markerhist.first)) ? markerhist.second.push(1) : markerhist.second.push(0);
             // If the marker history has reached history limit, pop the oldest element
             if (markerhist.second.size() > marker_history) {
@@ -478,7 +470,7 @@ int main(int argc, char** argv) {
             }
         }
     
-        // Iterate through each detected marker and send data for estimated marker and draw green AR cube, otherwise draw red AR square
+        // Iterate through each detected marker and send data for active marker and draw green AR cube, otherwise draw red AR square
         for (unsigned int i = 0; i < Markers.size(); i++) {
             // If marker id matches current active marker, draw a green AR cube
             if (Markers[i].id == active_marker) {
