@@ -454,6 +454,7 @@ int main(int argc, char** argv) {
 
         // Iterate through the markers, in order of size, and do pose estimation
         for (auto & markerArea:markerAreas) {
+            if (markerArea.second != active_marker) continue; // Don't do pose estimation if not active marker, save cpu cycles
             float _size;
             // If marker size mapping exists for this marker, use it for pose estimation
             if (markerSizes[markerArea.second]) {
@@ -474,7 +475,9 @@ int main(int argc, char** argv) {
         for (unsigned int i = 0; i < Markers.size(); i++) {
             // If marker id matches current active marker, draw a green AR cube
             if (Markers[i].id == active_marker) {
-                Markers[i].draw(rawimage, Scalar(0, 255, 0), 2, false);
+                if (output) {
+                    Markers[i].draw(rawimage, Scalar(0, 255, 0), 2, false);
+                }
                 // If pose estimation was successful, draw AR cube and distance
                 if (Markers[i].Tvec.at<float>(0,2) > 0) {
                     // Calculate angular offsets in radians of center of detected marker
