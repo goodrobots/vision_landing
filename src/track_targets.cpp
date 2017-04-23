@@ -427,9 +427,9 @@ int main(int argc, char** argv) {
             for (auto & markerArea:markerAreas) {
                 uint32_t thisId = markerArea.second;
                 if (markerSizes[thisId]) {
-                    // If the history threshold for this marker is >50%, then set as the active marker and clear marker histories.  Otherwise, skip to the next sized marker.
+                    // If the current history for this marker is >threshold, then set as the active marker and clear marker histories.  Otherwise, skip to the next sized marker.
                     uint32_t histsum = markerHistory(marker_history_queue, thisId, marker_history);
-                    if (histsum > (marker_history / (100/marker_threshold))) {
+                    if (histsum > (marker_history * (marker_threshold / 100))) {
                         if (active_marker == thisId) break; // Don't change to the same thing
                         cout << "debug:changing active_marker:" << thisId << endl;
                         changeActiveMarker(marker_history_queue, active_marker, thisId, marker_history);
