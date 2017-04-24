@@ -146,7 +146,7 @@ int markerHistory(map<uint32_t, queue<int>> &marker_history_queue, uint32_t this
 void changeActiveMarker(map<uint32_t, queue<int>> &marker_history_queue, uint32_t &active_marker, uint32_t newId, uint32_t marker_history) {
     // Set the new marker as active
     active_marker = newId;
-    
+
     // Reset all marker histories.  This ensures that another marker change can't happen for at least x frames where x is history size
     for (auto & markerhist:marker_history_queue) {
         for (unsigned int j = 0; j < marker_history; j++) {
@@ -428,11 +428,19 @@ int main(int argc, char** argv) {
                 uint32_t thisId = markerArea.second;
                 if (markerSizes[thisId]) {
                     // If the current history for this marker is >threshold, then set as the active marker and clear marker histories.  Otherwise, skip to the next sized marker.
-                    uint32_t histsum = markerHistory(marker_history_queue, thisId, marker_history);
-                    if (histsum > (marker_history * (marker_threshold / 100))) {
+                    uint32_t _histsum = markerHistory(marker_history_queue, thisId, marker_history);
+                    float _histthresh = marker_history * ((float)marker_threshold / (float)100);
+                    if (_histsum > _histthresh) {
                         if (active_marker == thisId) break; // Don't change to the same thing
-                        cout << "debug:changing active_marker:" << thisId << endl;
+                        cout << "debug:changing active_marker:" << thisId << ":" << _histsum << ":" << _histthresh << ":" << endl;
                         changeActiveMarker(marker_history_queue, active_marker, thisId, marker_history);
+                        if (verbose) {
+                            cout << "debug:marker history:";
+                            for (auto & markerhist:marker_history_queue) {
+                                cout << markerhist.first << ":" << markerHistory(marker_history_queue, markerhist.first, marker_history) << ":";
+                            }
+                            cout << endl;
+                        }
                         break;
                     }
                 }
@@ -443,10 +451,11 @@ int main(int argc, char** argv) {
             for (auto & markerArea:markerAreas) {
                 uint32_t thisId = markerArea.second;
                 // If the history threshold for this marker is >50%, then set as the active marker and clear marker histories.  Otherwise, skip to the next sized marker.
-                uint32_t histsum = markerHistory(marker_history_queue, thisId, marker_history);
-                if (histsum > (marker_history / (100/marker_threshold))) {
-                    changeActiveMarker(marker_history_queue, active_marker, thisId, marker_history); 
+                uint32_t _histsum = markerHistory(marker_history_queue, thisId, marker_history);
+                float _histthresh = marker_history * ((float)marker_threshold / (float)100);
+                if (_histsum > _histthresh) {
                     cout << "debug:changing active_marker:" << thisId << endl;
+                    changeActiveMarker(marker_history_queue, active_marker, thisId, marker_history); 
                     break;
                 }
             }
