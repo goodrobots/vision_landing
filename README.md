@@ -1,6 +1,6 @@
 # vision_landing
 ### Precision landing using visual targets.  
-This is a project to achieve precision landing on drones using ArduCopter firmware, using vision alone.  Fiducial markers are printed and used as landing targets, and these targets provide orientation, location and distance information when combined with accurate size information of the markers and calibrated camera information.
+This is a project to achieve precision landing on drones using ArduCopter firmware, using (monocular) vision alone.  Fiducial markers are printed and used as landing targets, and these targets provide orientation, location and distance information when combined with accurate size information of the markers and calibrated camera information.  No rangefinder is necessary, as the distance to target is obtained automatically through pose estimation of the markers.
 
 Dependencies
 --------------------
@@ -13,10 +13,11 @@ If possible find packages for your OS for version 3.0 or above (or install from 
 Note that this was developed using OpenCV 3.2.  SolvePNP which is the underlying function for pose estimation that aruco uses is somewhat broken in 2.4 so aruco includes it's own routines, only using solvepnp in OpenCV >3.0.
 
 **Aruco (>2.0)**
-It is recommended to install 2.0.16 from https://github.com/fnoop/aruco as it has patched pkg-config files.  
+It is recommended to install 2.0.20 from https://github.com/fnoop/aruco as it has some fixes that haven't been released yet.  
 Installation is straight forward:  
  ```
  git clone https://github.com/fnoop/aruco
+ git checkout 2.0.20-git-fixed
  cd aruco
  cmake . && make && sudo make install
  ```
@@ -34,18 +35,32 @@ In order to perform the recommended calibration (detailed below in the next sect
  https://github.com/fnoop/vision_landing/blob/master/calibration/aruco_calibration_board_a4.pdf  
 It is important to print this on A4 size paper in exactly the size and proportions given in the PDF, as there are specific properties of the board that are expected by the calibration process.  
 When it comes to the landing markers themselves, the size and format depends on the nature of the craft and landing situations.  The higher the craft normally flies or will start landing from, the larger the target needs to be in order to be detected.  However, larger targets are more difficult to produce, transport and store, and they become unreadable at lower altitudes as they exceed the Field of View of the camera.  If precision landing is acceptable from a lower altitude then a smaller target can be used.  Alternatively, multiple targets can be used with varying sizes, so a larger target can be used for high altitude lock-on, then the vision system can switch to smaller targets at lower altitude for better precision and to keep within the FoV.  
-Aruco recommends the 'ARUCO_MIP_36h12' dictionary for the best compromise between marker size and robustness.  
+Aruco recommends the 'ARUCO_MIP_36h12' dictionary for the best compromise between marker size and robustness.
 <img src="https://github.com/fnoop/vision_landing/blob/master/markers/aruco_mip_36h12_00012.png" width="300">  
-This is a 36bit (6x6) 250 element dictionary and the intermarker distance is smaller than other aruco dictionaries such as 16h3 (4x4), so it's possible after further testing that these dictionaries with smaller marker size are better for precision landing.  So to start with, it is recommended to print a couple of markers (at your choice of size, A4 or A3 are easy to print and a good start):  
+This is a 36bit (6x6) 250 element dictionary and the intermarker distance is smaller than other aruco dictionaries such as 16h3 (4x4), so it's possible after further testing that these dictionaries with smaller marker size are better for precision landing.  Indeed, practical testing has shown that using a dictionary with a smaller grid size (and hence larger element or 'pixel' size) gives much better results from altitude.  If a larger dictionary with lots of different tags is not required, then it is recommended to use a dictionary such as the AprilTags 16h5 dictionary.  
+<img src="https://github.com/fnoop/vision_landing/blob/master/markers/tag16_05_00011.png" width="300">  
+
+So to start with, it is recommended to print a couple of markers (at your choice of size, A4 or A3 are easy to print and a good start):  
  https://github.com/fnoop/vision_landing/blob/master/markers/aruco_mip_36h12_00012.png  
  https://github.com/fnoop/vision_landing/blob/master/markers/aruco_mip_36h12_00036.png  
-Once printed, measure the size of the marker (black edge to black edge) and this is fed as the marker size parameter to vision_landing.  
-It is important that the markers do not deform, bend, flap or move, so it's advisable to mount them on something solid like board or perspex.  Cardboard mounting up to A1 size is easy to find in local print or stationary shops.  It is particularly important to make sure the A4 calibration page is rigid when doing the calibration.  
+Once printed, measure the size of the marker (black edge to black edge) and this is fed as the marker size parameter to vision_landing.  However, note that you should either print the white border or mount the marker on a white background that leaves a white border around the black marker itself - the white border is important for reliable detection.  
+It is important that the markers do not deform, bend, flap or move, so it's advisable to mount them on something solid like board or perspex.  Cardboard mounting up to A1 size is easy to find in local print, craft or stationary shops.  It is particularly important to make sure the A4 calibration page is rigid when doing the calibration.  
 
-**the following is not yet implemented, tracked in [https://github.com/fnoop/vision_landing/issues/16]**  
 In order to address the problem of large markers exceeding the camera FoV at lower altitudes, multiple markers of differing sizes can be used.  As the craft descends in altitude locked on to a large marker, at some point a smaller marker will come into view and can be locked on to.  Marker boards can be used for increased robustness and accuracy.  An example of such a multiple marker board is included as an A1 PDF:
 https://github.com/fnoop/vision_landing/blob/master/markers/a1-landing.pdf  
 <img src="https://github.com/fnoop/vision_landing/blob/master/markers/a1-landing.png" width="300">  
+After testing and experimentation, it was found to have less markers as close together as possible in a circular pattern, with small pattern grids and larger intermarker distances gave better results.  An updated marker board as below is preset as default in the config file:  
+https://github.com/fnoop/vision_landing/blob/master/markers/april16h5-landing-a1.pdf  
+<img src="https://github.com/fnoop/vision_landing/blob/master/markers/april16h5-landing-a1.png" width="300">  
+
+Also during development and testing, it was found that as the smaller markers come into view, the detection bounces between the two which can cause oscillations or other unexpected (and undesirable!) behaviour of the UAV.  A configurable filter that helps to debounce the detection thresholds has been implemented and can be set in the config:  
+```
+## Marker tracking history - number of frames that each marker is tracked for active marker transition  
+markerhistory=30  
+## Marker tracking threshold - percentage of frames in tracking history that marker must be detected to be activated  
+markerthreshold=80  
+```
+The above settings mean that a 30 frame marker buffer is used (equal to 1 second at 30fps), and that of the last 30 frames, the smaller marker must be accurately detected in at least 80% of those 30 frames before vision_landing will lock on to that new smaller marker.  This greatly helps when landing on a pattern of concentric diminishing markers.  
 
 Camera Calibration
 --------------------
@@ -73,13 +88,18 @@ track_targets must be compiled and installed into the main directory before visi
  ```
 You should now have a track_targets file in the same directory as the vision_landing script (the root of the vision_landing project).
 
-### Recommended Installation  
+### Service Installation  
 In order to provide startup at system boot and 'graceful' stop, a systemd manifest is provided (vision_landing.service).  To install, either alter the manifest with the full path to where vision_landing has been downloaded to (replace all instances of /usr/local/vision_landing with new path), or perhaps easier is to copy or symlink the directory to /usr/local and the provided manifest can be used without alteration.  The following should be executed from the root of vision_landing project (ie. in the same directory as the vision_landing script and track_targets after install):  
  ```
  sudo ln -s `pwd` /usr/local
  sudo cp vision_landing.service /etc/systemd/system
  sudo systemctl daemon-reload
  ```  
+ 
+ ### Maverick - Automated Installation
+ The [Maverick](http://github.com/fnoop/maverick) project pre-installs everything necessary for vision_landing.  Flash-able OS images are available for multiple platforms.  To start vision_landing, ensure anything else that is using the camera is stopped, and simply use:  
+ `maverick start vision_landing`  
+ 
 
 Running
 --------------------
@@ -93,7 +113,7 @@ It can be stopped by executing:
 Note that when using systemd for control, mandatory and optional parameters are set using vision_landing.conf.  
 
 ### Manual running
-vision_landing can also be run without systemd by just calling the main script and relying on the config file for correct configuration, or calling with the necessary mandatory and optional parameters.  
+vision_landing can also be run without systemd by just calling the main script and relying on the config file for correct configuration, or calling with the necessary mandatory and optional parameters.  It is highly recommended to use the config file for ease of use and minimum confusion.  
 
 **Examples**
 ```
@@ -124,3 +144,12 @@ vision_landing can also be run without systemd by just calling the main script a
  - **--fakerangefinder**: This flag tells vision_landing to also send fake rangefinder data based on distance detected from a selected target.  This is necessary for arducopter firmware <3.5-rc2.
  - **--verbose**: Turn on some extra info/debug output
  
+## Intel RealSense enhancements
+The *realsense* branch of this project adds some enhancements when using an Intel RealSense camera.  These units actually have three cameras inside - a color RGB camera, two near-InfraRed cameras, and they also have a laser projector for throwing IR patterns onto flat surfaces that are otherwise hard to map.  From the two infrared cameras, a depth map is calculated.  All of this is done in custom ASIC hardware on the unit so no additional processing is necessary on the host computer.  In addition, the units are factory calibrated and intrinsic calibration data is automatically available for each individual unit through the librealsense library/api.  They are an excellent, cheap option for obtaining stereo depth data.  
+However, for the purposes of vision_landing they have advantages and disadvantages.  On the downside, the cameras are very low quality mobile-pinhole type lenses/sensors.  They are configured by default for indoor use, and configuring them for outdoor use is tricky.  In particular, the color RGB camera is very poor and is terrible at high contrasting colours - unfortunately exactly what the landing markers are - the white bleeds onto the black and makes detection difficult and unreliable.  On the upside, the two IR cameras are global shutter and high framerate (up to 90fps).  This makes them actually very good for Computer Vision, and excellent results can be obtained using these cameras.  It seems that the toner of laser printers absorb IR very well, so targets printed on a laser printer have excellent contrast to the IR cameras and are very clear from altitude.  In addition, the streams from the three cameras can be read simultaneously, as well as the synthetic streams for depth, and corrected and synchronised streams between the cameras.  This means we can use the IR camera for the marker detection and estimation, and use either the color stream or depth mapping for visualisation.  
+
+
+
+
+
+
