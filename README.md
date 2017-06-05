@@ -2,6 +2,21 @@
 ### Precision landing using visual targets.  
 This is a project to achieve precision landing on drones using ArduCopter firmware, using (monocular) vision alone.  Fiducial markers are printed and used as landing targets, and these targets provide orientation, location and distance information when combined with accurate size information of the markers and calibrated camera information.  No rangefinder is necessary, as the distance to target is obtained automatically through pose estimation of the markers.
 
+Demonstrations
+--------------------
+### vision_landing from RTL  
+<a href="https://www.youtube.com/watch?v=Kgba-BnwbKo" target="_new_"><img src="https://github.com/fnoop/vision_landing/blob/master/media/rtl-landing.png" width="300"></a>  
+### vision_landing using Infrared  
+<a href="https://www.youtube.com/watch?v=O2c_Ge-D9AI" target="_new_"><img src="https://github.com/fnoop/vision_landing/blob/master/media/ir-gray.png" width="300"></a>  
+### vision_landing using multiple video/data streams, colormapped in realtime  
+<a href="https://www.youtube.com/watch?v=qtYfszhPRMY" target="_new_"><img src="https://github.com/fnoop/vision_landing/blob/master/media/ir-colormap.png" width="300"></a>
+### Detection altitude using 720p video  
+Landing marker detected and locked on at 23 meters altitude, using very poor quality 720p video.  Much higher altitude can be expected using better quality camera/settings.  
+<img src="https://github.com/fnoop/vision_landing/blob/master/media/23m-720p.png" width="300">  
+### Detection altitude using 1080p video  
+Landing marker detected and locked on at 32 meters altitude, using very poor quality 1080p video.  Much higher altitude can be expected using better quality camera/settings.  
+<img src="https://github.com/fnoop/vision_landing/blob/master/media/32m-1080p.png" width="300">  
+
 Dependencies
 --------------------
 **OpenCV (>3.0 recommended)**  
@@ -9,7 +24,7 @@ If possible find packages for your OS for version 3.0 or above (or install from 
  - libopencv-dev  
  - libopencv-calib3d-dev  
  - libopencv-highgui-dev  
- - libopencv-imgproc-dev 
+ - libopencv-imgproc-dev
 Note that this was developed using OpenCV 3.2.  SolvePNP which is the underlying function for pose estimation that aruco uses is somewhat broken in 2.4 so aruco includes it's own routines, only using solvepnp in OpenCV >3.0.
 
 **Aruco (>2.0)**
@@ -21,7 +36,7 @@ Installation is straight forward:
  cd aruco
  cmake . && make && sudo make install
  ```
- 
+
 **Dronekit**
 Install the latest dronekit:  
  ```
@@ -95,11 +110,11 @@ In order to provide startup at system boot and 'graceful' stop, a systemd manife
  sudo cp vision_landing.service /etc/systemd/system
  sudo systemctl daemon-reload
  ```  
- 
+
  ### Maverick - Automated Installation
  The [Maverick](http://github.com/fnoop/maverick) project pre-installs everything necessary for vision_landing.  Flash-able OS images are available for multiple platforms.  To start vision_landing, ensure anything else that is using the camera is stopped, and simply use:  
  `maverick start vision_landing`  
- 
+
 
 Running
 --------------------
@@ -143,13 +158,7 @@ vision_landing can also be run without systemd by just calling the main script a
  - **--brightness**: This can be used to increase or decrease gain or brightness in high or low light conditions.
  - **--fakerangefinder**: This flag tells vision_landing to also send fake rangefinder data based on distance detected from a selected target.  This is necessary for arducopter firmware <3.5-rc2.
  - **--verbose**: Turn on some extra info/debug output
- 
+
 ## Intel RealSense enhancements
 The *realsense* branch of this project adds some enhancements when using an Intel RealSense camera.  These units actually have three cameras inside - a color RGB camera, two near-InfraRed cameras, and they also have a laser projector for throwing IR patterns onto flat surfaces that are otherwise hard to map.  From the two infrared cameras, a depth map is calculated.  All of this is done in custom ASIC hardware on the unit so no additional processing is necessary on the host computer.  In addition, the units are factory calibrated and intrinsic calibration data is automatically available for each individual unit through the librealsense library/api.  They are an excellent, cheap option for obtaining stereo depth data.  
 However, for the purposes of vision_landing they have advantages and disadvantages.  On the downside, the cameras are very low quality mobile-pinhole type lenses/sensors.  They are configured by default for indoor use, and configuring them for outdoor use is tricky.  In particular, the color RGB camera is very poor and is terrible at high contrasting colours - unfortunately exactly what the landing markers are - the white bleeds onto the black and makes detection difficult and unreliable.  On the upside, the two IR cameras are global shutter and high framerate (up to 90fps).  This makes them actually very good for Computer Vision, and excellent results can be obtained using these cameras.  It seems that the toner of laser printers absorb IR very well, so targets printed on a laser printer have excellent contrast to the IR cameras and are very clear from altitude.  In addition, the streams from the three cameras can be read simultaneously, as well as the synthetic streams for depth, and corrected and synchronised streams between the cameras.  This means we can use the IR camera for the marker detection and estimation, and use either the color stream or depth mapping for visualisation.  
-
-
-
-
-
-
