@@ -5,11 +5,11 @@ This is a project to achieve precision landing on drones using ArduCopter firmwa
 Demonstrations
 --------------------
 ### vision_landing from RTL  
-<a href="https://www.youtube.com/watch?v=Kgba-BnwbKo" target="_new_"><img src="https://github.com/fnoop/vision_landing/blob/master/media/rtl-landing.png" width="400"></a>  
+<a href="https://www.youtube.com/watch?v=E5PEEvcGPGc" target="_new_"><img src="https://github.com/fnoop/vision_landing/blob/master/media/rtl-landing.png" width="400"></a>  
 ### vision_landing using Infrared  
-<a href="https://www.youtube.com/watch?v=O2c_Ge-D9AI" target="_new_"><img src="https://github.com/fnoop/vision_landing/blob/master/media/ir-gray.png" width="400"></a>  
+<a href="https://www.youtube.com/watch?v=4ahQUu4kxuk" target="_new_"><img src="https://github.com/fnoop/vision_landing/blob/master/media/ir-gray.png" width="400"></a>  
 ### vision_landing using multiple video/data streams, colormapped in realtime  
-<a href="https://www.youtube.com/watch?v=qtYfszhPRMY" target="_new_"><img src="https://github.com/fnoop/vision_landing/blob/master/media/ir-colormap.png" width="400"></a>
+<a href="https://www.youtube.com/watch?v=OnWrUb7D-T4" target="_new_"><img src="https://github.com/fnoop/vision_landing/blob/master/media/ir-colormap.png" width="400"></a>
 ### Detection altitude using 720p video  
 Landing marker detected and locked on at 23 meters altitude, using very poor quality 720p video.  Much higher altitude can be expected using better quality camera/settings.  
 <img src="https://raw.githubusercontent.com/fnoop/vision_landing/master/media/23m-720p.png" width="400">  
