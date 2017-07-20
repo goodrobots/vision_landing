@@ -285,7 +285,7 @@ int main(int argc, char** argv) {
     // Setup the marker detection
     double MarkerSize = args::get(markersize);
     MarkerDetector MDetector;
-    MDetector.setThresholdParams(7, 7);
+    MDetector.setThresholdParams(3, 3);
     MDetector.setThresholdParamRange(2, 0);
     std::map<uint32_t,MarkerPoseTracker> MTracker; // use a map so that for each id, we use a different pose tracker
     if (dict)
@@ -471,6 +471,7 @@ int main(int argc, char** argv) {
             // Otherwise use generic marker size
             } else if (MarkerSize) {
                 _size = MarkerSize;
+                cout << "debug:defaulting to generic marker size: " << markerArea.second << endl;
             }
             // Find the Marker in the Markers map and do pose estimation.  I'm sure there's a better way of iterating through the map..
             for (unsigned int i = 0; i < Markers.size(); i++) {
@@ -489,16 +490,18 @@ int main(int argc, char** argv) {
                 }
                 // If pose estimation was successful, draw AR cube and distance
                 if (Markers[i].Tvec.at<float>(0,2) > 0) {
+                    // Calculate vector norm for distance
+                    double distance = sqrt(pow(Markers[i].Tvec.at<float>(0,0), 2) + pow(Markers[i].Tvec.at<float>(0,1), 2) + pow(Markers[i].Tvec.at<float>(0,2), 2));
                     // Calculate angular offsets in radians of center of detected marker
                     double xoffset = (Markers[i].getCenter().x - inputwidth / 2.0) * (fovx * (pi/180)) / inputwidth;
                     double yoffset = (Markers[i].getCenter().y - inputheight / 2.0) * (fovy * (pi/180)) / inputheight;
                     if (verbose)
-                        cout << "debug:active_marker:" << active_marker << ":center~" << Markers[i].getCenter() << ":area~" << Markers[i].getArea() << ":marker~" << Markers[i] << endl;
-                    cout << "target:" << Markers[i].id << ":" << xoffset << ":" << yoffset << ":" << Markers[i].Tvec.at<float>(0,2) << endl;
+                        cout << "debug:active_marker:" << active_marker << ":center~" << Markers[i].getCenter() << ":area~" << Markers[i].getArea() << ":marker~" << Markers[i] << ":vectorz~" << Markers[i].Tvec.at<float>(0,2) << ":vectornorm~" << distance << endl;
+                    cout << "target:" << Markers[i].id << ":" << xoffset << ":" << yoffset << ":" << distance << endl;
                     if (output) { // don't burn cpu cycles if no output
                         drawARLandingCube(rawimage, Markers[i], CamParam);
                         CvDrawingUtils::draw3dAxis(rawimage, Markers[i], CamParam);
-                        drawVectors(rawimage, Scalar (0,255,0), 1, (i+1)*20, Markers[i].id, xoffset, yoffset, Markers[i].Tvec.at<float>(0,2), Markers[i].getCenter().x, Markers[i].getCenter().y);
+                        drawVectors(rawimage, Scalar (0,255,0), 1, (i+1)*20, Markers[i].id, xoffset, yoffset, distance, Markers[i].getCenter().x, Markers[i].getCenter().y);
                     }
                 }
             // Otherwise draw a red square
