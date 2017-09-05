@@ -297,6 +297,30 @@ class SigTrack:
 ### End Define Classes
 ### ================================
 
+### ================================
+### Define Functions
+### ================================
+
+def get_config_value(parser, section, option):
+    """Parses config value as python type"""
+    try:
+        return parser.getint(section, option)
+    except ValueError:
+        pass
+    try:
+        return parser.getfloat(section, option)
+    except ValueError:
+        pass
+    try:
+        return parser.getboolean(section, option)
+    except ValueError:
+        pass
+    return parser.get(section, option)
+
+### ================================
+### End Define Functions
+### ================================
+
 ### --------------------------------
 ### Parse arguments, setup logging
 ### --------------------------------
@@ -339,7 +363,8 @@ defaults = {}
 if path.isfile(args.config):
     config = ConfigParser.SafeConfigParser()
     config.read([args.config])
-    defaults.update(dict(config.items("Defaults")))
+    for key, value in config.items("Defaults"):
+        defaults[key] = get_config_value(config, "Defaults", key)
     parser.set_defaults(**defaults)
     args = parser.parse_args()
 else:
