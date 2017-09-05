@@ -113,13 +113,13 @@ class TrackTargets:
             self.track_arguments.extend(['-i', args.markerid])
         # If width is set, pass it through
         if args.width:
-            self.track_arguments.extend(['-w', args.width])
+            self.track_arguments.extend(['-w', str(args.width)])
         # If height is set, pass it through
         if args.height:
-            self.track_arguments.extend(['-g', args.height])
+            self.track_arguments.extend(['-g', str(args.height)])
         # If fps is set, pass it through
         if args.fps:
-            self.track_arguments.extend(['-f', args.fps])
+            self.track_arguments.extend(['-f', str(args.fps)])
         # If verbose is set, pass it through
         if args.verbose:
             self.track_arguments.extend(['-v'])
@@ -134,12 +134,12 @@ class TrackTargets:
             self.track_arguments.extend(['-z', args.sizemapping])
         # If markerhistory is set, pass it through
         if args.markerhistory:
-            self.track_arguments.extend(['--markerhistory', args.markerhistory])
+            self.track_arguments.extend(['--markerhistory', str(args.markerhistory)])
         # If markerthreshold is set, pass it through
         if args.markerthreshold:
-            self.track_arguments.extend(['--markerthreshold', args.markerthreshold])
+            self.track_arguments.extend(['--markerthreshold', str(args.markerthreshold)])
         # Add positional arguments
-        self.track_arguments.extend([args.input, calibration, args.markersize])
+        self.track_arguments.extend([args.input, calibration, str(args.markersize)])
     def launch(self):
         self.process = Popen(self.track_arguments, stdin = PIPE, stdout = PIPE, stderr = PIPE, shell = False, bufsize=1)
         self.reader = ThreadedReader(self.process.stdout, self.process.stderr)
@@ -297,6 +297,30 @@ class SigTrack:
 ### End Define Classes
 ### ================================
 
+### ================================
+### Define Functions
+### ================================
+
+def get_config_value(parser, section, option):
+    """Parses config value as python type"""
+    try:
+        return parser.getint(section, option)
+    except ValueError:
+        pass
+    try:
+        return parser.getfloat(section, option)
+    except ValueError:
+        pass
+    try:
+        return parser.getboolean(section, option)
+    except ValueError:
+        pass
+    return parser.get(section, option)
+
+### ================================
+### End Define Functions
+### ================================
+
 ### --------------------------------
 ### Parse arguments, setup logging
 ### --------------------------------
@@ -339,7 +363,8 @@ defaults = {}
 if path.isfile(args.config):
     config = ConfigParser.SafeConfigParser()
     config.read([args.config])
-    defaults.update(dict(config.items("Defaults")))
+    for key, value in config.items("Defaults"):
+        defaults[key] = get_config_value(config, "Defaults", key)
     parser.set_defaults(**defaults)
     args = parser.parse_args()
 else:
