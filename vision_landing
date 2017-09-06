@@ -418,7 +418,7 @@ else:
 
 # Check track_targets exists
 if not path.isfile(cwd+"/track_targets"):
-    log.critical("Error: track_targets does not exist.  Please run 'cmake . && make' in src/ directory")
+    log.critical("Error: track_targets does not exist.  Please run 'make install' in src/ directory")
     exit(1)
 
 # Run the vision tracker as a thread
