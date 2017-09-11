@@ -37,15 +37,15 @@ using namespace aruco;
 static volatile sig_atomic_t sigflag = 0;
 static volatile sig_atomic_t stateflag = 0; // 0 = stopped, 1 = started
 void handle_sig(int sig) {
-    cout << "SIGNAL:" << sig << ":Received" << endl;
+    cout << "info:SIGNAL:" << sig << ":Received" << endl;
     sigflag = 1;
 }
 void handle_sigusr1(int sig) {
-    cout << "SIGNAL:SIGUSR1:Received:" << sig << ":Switching on Vision Processing" << endl;
+    cout << "info:SIGNAL:SIGUSR1:Received:" << sig << ":Switching on Vision Processing" << endl;
     stateflag = 1;
 }
 void handle_sigusr2(int sig) {
-    cout << "SIGNAL:SIGUSR2:Received:" << sig << ":Switching off Vision Processing" << endl;
+    cout << "info:SIGNAL:SIGUSR2:Received:" << sig << ":Switching off Vision Processing" << endl;
     stateflag = 0;
 }
 
@@ -340,6 +340,9 @@ int main(int argc, char** argv) {
     marker_threshold = args::get(markerthreshold);
     cout << "debug:Marker Threshold:" << marker_threshold << endl;
     
+    // Print a specific info message to signify end of initialisation
+    cout << "info:initcomp:Initialisation Complete" << endl;
+    
     // Main loop
     while (true) {
 
@@ -526,7 +529,7 @@ int main(int argc, char** argv) {
 
     }
     
-    cout << "track_targets complete, exiting" << endl;
+    cout << "info:track_targets complete, exiting" << endl;
     cout.flush();
     return 0;
 

@@ -143,6 +143,7 @@ class TrackTargets:
     def launch(self):
         self.process = Popen(self.track_arguments, stdin = PIPE, stdout = PIPE, stderr = PIPE, shell = False, bufsize=1)
         self.reader = ThreadedReader(self.process.stdout, self.process.stderr)
+        self.state = "initialising"
     def processline(self, line):
         # Unpack data from track_targets data
         trackdata = line.rstrip().split(":")
@@ -151,8 +152,12 @@ class TrackTargets:
             datatype = trackdata[0]
             if trackdata[0] == "error":
                 log.error("track_targets: " +str(trackdata[1:]))
-            elif args.verbose:
+            elif trackdata[0] == "debug" and args.verbose:
                 log.debug("track_targets: " + datatype[0].upper() + datatype[1:] + str(trackdata[1:]))
+            elif trackdata[0] == "info":
+                log.info("track_targets: " + str(trackdata[1:]))
+                if trackdata[1] == "initcomp":
+                    self.state = "initialised"
             return
         # Unpack and cast target data to correct types
         [id,x,y,z] = trackdata[1:]
@@ -171,13 +176,17 @@ class TrackTargets:
         fps = len(self.frame_times) / sum(self.frame_times)
         log.info("Fctime:"+str(trackfctime.estimate())+", Fps: "+str(fps)+", Alt:"+ str(craft.vehicle.location.global_relative_frame.alt)+", Rangefinder:"+ str(craft.vehicle.rangefinder.distance)+ ", Marker:"+ str(id)+ ", Distance:"+str(z)+ "xOffset:"+str(x)+ "yOffset:"+str(y))
     def start(self):
-        log.info("Requesting track_targets to start tracking:"+str(craft.vehicle.mode))
-        self.state = "started"
-        self.process.send_signal(signal.SIGUSR1)
+        if self.state == "initialised":
+            log.info("Requesting track_targets to start tracking:"+str(craft.vehicle.mode))
+            self.process.send_signal(signal.SIGUSR1)
+            self.state = "started"
+        else:
+            log.info("Request to start track_targets tracking failed, state is not 'initialised'")
+        # self.state = "started"
         # self.process.stdin.write("BLAAAAAAH!\n") # This doesn't work yet
     def stop(self):
         log.info("Requesting track_targets to stop tracking:"+str(craft.vehicle.mode))
-        self.state = "stopped"
+        self.state = "initialised"
         self.process.send_signal(signal.SIGUSR2)
     def end(self):
         log.info("Shutting down track_targets")
@@ -424,6 +433,7 @@ if not path.isfile(cwd+"/track_targets"):
 # Run the vision tracker as a thread
 try:
     track_targets = TrackTargets(args, calibration)
+    sleep(1)
 except Exception as error:
     log.critical("Error starting track_targets:"+ str(error))
     exit(1)
@@ -529,11 +539,11 @@ while True:
 log.info("Entering main tracking loop")
 while True:
     # If craft mode has changed, take action
-    if (args.controlprocessing and (craft.vehicle.armed and (craft.vehicle.mode == "LAND" or (craft.vehicle.mode == "LOITER" and (craft.precloiter_opt and craft.vehicle.channels[str(craft.precloiter_opt)] > 1800))))) and track_targets.state != "started":
+    if (args.controlprocessing and (craft.vehicle.armed and (craft.vehicle.mode == "LAND" or (craft.vehicle.mode == "LOITER" and (craft.precloiter_opt and craft.vehicle.channels[str(craft.precloiter_opt)] > 1800))))) and track_targets.state == "initialised":
         track_targets.start()
     elif (args.controlprocessing and (not craft.vehicle.armed or (craft.vehicle.mode != "LAND" and (craft.vehicle.mode != "LOITER" and (craft.precloiter_opt and craft.vehicle.channels[str(craft.precloiter_opt)] <= 1800))))) and track_targets.state == "started":
         track_targets.stop()
-    elif not args.controlprocessing and not track_targets.state:
+    elif not args.controlprocessing and track_targets.state == "initialised":
         track_targets.start()
 
     line = track_targets.reader.readline() # See if there are any tracking results in the queue
@@ -551,11 +561,9 @@ while True:
     if track_targets.process.returncode != None and track_targets.shutdown:
         log.info("Tracking process return code:"+str(track_targets.process.returncode)+", exiting main loop")
         break
-    elif track_targets.process.returncode != None and not track_targets.shutdown:
+    elif track_targets.process.returncode != None and not track_targets.shutdown and track_targets.state == "started":
         log.error("Error: Tracking process shut down unexpectedly ("+str(track_targets.process.returncode)+"), restarting")
         track_targets = TrackTargets(args, calibration)
-        sleep(1)
-        track_targets.process.poll()
 
 cleanup()
 log.info("Vision_landing shutdown complete, exiting")
