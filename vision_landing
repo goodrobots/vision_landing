@@ -19,7 +19,6 @@ from sys import exit, stdout, stderr
 from os import path, makedirs, symlink, remove
 from math import pi
 from re import sub, search
-from datetime import datetime
 import signal
 import logging
 
@@ -62,22 +61,47 @@ class ThreadedReader:
 
 # Define tracking timer class
 class TrackTimer:
-    def __init__(self):
-        self.fctimeus = None
+    def __init__(self, craft):
+        self.fctime_nanos = 0
+        self.cctime_nanos = 0
+        self.send_tracker = {}
+        self.local_tracker = {}
         self.delta = None
         self.debug = False
-    def update(self, timeus):
-        if self.debug:
-            print "Expected timeus: " +str(self.estimate()) +", actual timeus: " +str(timeus)
-        # Messages come in or are processed asynchronously, out of order, so a later message may have an earlier timestamp.
-        # So ignore any updates that are older than what we already know about
-        if timeus > self.fctimeus:
-            self.fctimeus = timeus
-            self.mytimeus = datetime.now()
+        self.vehicle = craft.vehicle
+        # Setup listener decorator
+        @self.vehicle.on_message("TIMESYNC")
+        def listener_timesync(subself, name, message):
+            try:
+                self.send_tracker[message.ts1] = message.tc1
+                # Initial timestamp, just set as is
+                if message.ts1 == 0:
+                    self.fctime_nanos = message.tc1
+                else:
+                    _cts = self.current_timestamp()
+                    _avg_ts = (self.local_tracker[message.ts1] + _cts)/2;
+                    self.delta = _cts - _avg_ts
+                    self.fctime_nanos = message.tc1 - self.delta
+                    if self.debug:
+                        print "Timesync message received:",message, self.delta, self.fctime_nanos
+            except:
+                if self.debug:
+                    print "Error, unexpected timesync timestamp received:",message.ts1
+    def current_timestamp(self):
+        return int((datetime.utcnow() - datetime(1970, 1, 1)).total_seconds() * 1000000000);
+    def send_timesync(self, ts, tc=0):
+        self.local_tracker[ts] = self.current_timestamp() # Create entry to correlate sending timestamp with actual localtime
+        self.send_tracker[ts] = None # Create an entry to track this timestamp
+        msg = self.vehicle.message_factory.timesync_encode(
+            tc,     # tc1
+            ts      # ts1
+        )
+        self.vehicle.send_mavlink(msg)
+        self.vehicle.flush()
     def actual(self):
-        return self.fctimeus
+        return self.fctime_nanos
     def estimate(self):
-        if self.fctimeus:
+        if self.fctime_nanos:
             self.delta = datetime.now() - self.mytimeus
             return int(self.fctimeus + (self.delta.total_seconds() * 1000))
         else:
@@ -166,7 +190,7 @@ class TrackTargets:
         if args.fakerangefinder:
             craft.send_distance_message(int(z*100))
         # Send the landing_target message to arducopter
-        craft.send_land_message(x,y,z)
+        craft.send_land_message(x,y,z, trackfctime.actual()/1000) # Send in micros, not nanos
         # Track frame timing to calculate fps, running average over last 5 frames
         end_t = time()
         time_taken = end_t - self.start_t
@@ -174,7 +198,8 @@ class TrackTargets:
         self.frame_times.append(time_taken)
         self.frame_times = self.frame_times[-5:]
         fps = len(self.frame_times) / sum(self.frame_times)
-        log.info("Fctime:"+str(trackfctime.estimate())+", Fps: "+str(fps)+", Alt:"+ str(craft.vehicle.location.global_relative_frame.alt)+", Rangefinder:"+ str(craft.vehicle.rangefinder.distance)+ ", Marker:"+ str(id)+ ", Distance:"+str(z)+ "xOffset:"+str(x)+ "yOffset:"+str(y))
+        # log.info("Fctime:"+str(trackfctime.estimate())+", Fps: "+str(fps)+", Alt:"+ str(craft.vehicle.location.global_relative_frame.alt)+", Rangefinder:"+ str(craft.vehicle.rangefinder.distance)+ ", Marker:"+ str(id)+ ", Distance:"+str(z)+ "xOffset:"+str(x)+ "yOffset:"+str(y))
+        log.info("Fctime:"+str(trackfctime.actual())+", Fps: "+str(fps)+", Alt:"+ str(craft.vehicle.location.global_relative_frame.alt)+", Rangefinder:"+ str(craft.vehicle.rangefinder.distance)+ ", Marker:"+ str(id)+ ", Distance:"+str(z)+ "xOffset:"+str(x)+ "yOffset:"+str(y))
     def start(self):
         if self.state == "initialised":
             log.info("Requesting track_targets to start tracking:"+str(craft.vehicle.mode))
@@ -234,9 +259,9 @@ class Craft:
             log.debug("Sending mavlink distance_message:" +str(dist))
     # Define function to send landing_target mavlink message for mavlink based precision landing
     # http://mavlink.org/messages/common#LANDING_TARGET
-    def send_land_message(self, x,y,z):
+    def send_land_message(self, x,y,z, time_usec=0):
         msg = self.vehicle.message_factory.landing_target_encode(
-            0,          # time since system boot, not used
+            time_usec,          # time since system boot, not used
             0,          # target num, not used
             mavutil.mavlink.MAV_FRAME_BODY_NED, # frame, not used
             x,          # X-axis angular offset, in radians
@@ -476,18 +501,8 @@ else:
     log.info("Connected to drone")
 
 # Create a new tracktimer object to try and keep sync with the flight controller
-trackfctime = TrackTimer()
-# Setup a listener for all incoming mavlink messages and update our time tracker whenever possible
-@craft.vehicle.on_message("*")
-def listener_all(self, name, message):
-    try:
-        trackfctime.update(message.time_usec)
-    except:
-        pass
-    try:
-        trackfctime.update(message.time_boot_ms * 1000)
-    except:
-        pass
+trackfctime = TrackTimer(craft)
+trackfctime.debug = True
 
 # Set some parameters important to precision landing
 log.info("Setting flight controller parameters")
@@ -537,7 +552,13 @@ while True:
 ### Listen for incoming cv tracking results
 ### --------------------------------
 log.info("Entering main tracking loop")
+loop_counter = 0
 while True:
+    # Update timesync between FC and CC, by sending current epoch in nanoseconds to the FC
+    # TrackTime class will take care of receiving the response and calculating offset
+    if loop_counter%10 == 0:
+        trackfctime.send_timesync(trackfctime.fctime_nanos)
+    
     # If craft mode has changed, take action
     if (args.controlprocessing and (craft.vehicle.armed and (craft.vehicle.mode == "LAND" or (craft.vehicle.mode == "LOITER" and (craft.precloiter_opt and craft.vehicle.channels[str(craft.precloiter_opt)] > 1800))))) and track_targets.state == "initialised":
         track_targets.start()
@@ -565,6 +586,8 @@ while True:
         log.error("Error: Tracking process shut down unexpectedly ("+str(track_targets.process.returncode)+"), restarting")
         track_targets = TrackTargets(args, calibration)
 
+    loop_counter += 1
+    
 cleanup()
 log.info("Vision_landing shutdown complete, exiting")
 exit(track_targets.process.returncode)
