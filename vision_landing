@@ -81,7 +81,7 @@ class TrackTimer:
                     _cts = self.current_timestamp()
                     _avg_ts = (self.local_tracker[message.ts1] + _cts)/2;
                     self.delta = _cts - _avg_ts
-                    self.fctime_nanos = message.tc1 - self.delta
+                    self.fctime_nanos = message.tc1 + self.delta
                     if self.debug:
                         print "Timesync message received:",message, self.delta, self.fctime_nanos
             except:
