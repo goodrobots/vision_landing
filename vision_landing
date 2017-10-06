@@ -19,6 +19,7 @@ from sys import exit, stdout, stderr
 from os import path, makedirs, symlink, remove
 from math import pi
 from re import sub, search
+from collections import deque
 import signal
 import logging
 
@@ -26,7 +27,8 @@ import logging
 ### Define Classes
 ### ================================
 
-# Define threaded reader class
+# Threaded Reader class connects the output from the track_targets process to a non-blocking reader, and adds any messages to a queue.
+# The queue is then read by the main loop and if anything is waiting it calls a method to process from the track_targets object.
 class ThreadedReader:
     def __init__(self, stdout, stderr):
         self.stdout = stdout
@@ -59,14 +61,17 @@ class ThreadedReader:
     def stopped(self):
         return self._stop.isSet()
 
-# Define tracking timer class
-class TrackTimer:
+# TrackTime class is used to synchronise time between the companion computer and the flight controller.
+# This is necessary to ensure that the vision frames are matched as closely as possible with the inertial frames.
+# Note: This requires a Craft object to be passed, in order to perform the actual sync. 
+class TrackTime:
     def __init__(self, craft):
         self.fctime_nanos = 0
         self.cctime_nanos = 0
         self.send_tracker = {}
         self.local_tracker = {}
         self.delta = None
+        self.delta_buffer = deque(maxlen=25) # Circular buffer to track timesync deltas
         self.debug = False
         self.vehicle = craft.vehicle
         # Setup listener decorator
@@ -80,16 +85,35 @@ class TrackTimer:
                 else:
                     _cts = self.current_timestamp()
                     _avg_ts = (self.local_tracker[message.ts1] + _cts)/2;
-                    self.delta = _cts - _avg_ts
-                    self.fctime_nanos = message.tc1 + self.delta
+                    self._delta = _cts - _avg_ts # Calculuate the time delta
+                    self.delta_buffer.append(self._delta) # Push the delta into the circular buffer
+                    # If the averaged delta has been reached, use that
+                    # TODO: This still applies the averaged delta to the spot tc1 which is subject to jitter
+                    if self.delta:
+                        self.fctime_nanos = message.tc1 + self.delta
+                    # Otherwise use the spot delta from the incoming message
+                    else:
+                        self.fctime_nanos = message.tc1 + self._delta
                     if self.debug:
-                        print "Timesync message received:",message, self.delta, self.fctime_nanos
+                        print "Timesync message received:",message, self._delta, self.fctime_nanos
             except:
                 if self.debug:
                     print "Error, unexpected timesync timestamp received:",message.ts1
+    # Blocking method to call once during startup, to calculate delta
+    def initial_sync(self):
+        # Keep sending timesync requests until the delta buffer is full
+        while len(list(self.delta_buffer)) < 25:
+            self.update()
+        # When full, average the delta buffer and then set that to use as the ongoing delta
+        self.delta = sum(list(self.delta_buffer)) / len(list(self.delta_buffer))
+    # Method to return local UCT time in nanoseconds since epoch.  Precision depends on platform.
     def current_timestamp(self):
         return int((datetime.utcnow() - datetime(1970, 1, 1)).total_seconds() * 1000000000);
-    def send_timesync(self, ts, tc=0):
+    # Request a timesync update from the flight controller
+    # def send_timesync(self, ts=self.fctime_nanos, tc=0):
+    def update(self, ts=0, tc=0):
+        if ts == 0:
+            ts = self.current_timestamp()
         self.local_tracker[ts] = self.current_timestamp() # Create entry to correlate sending timestamp with actual localtime
         self.send_tracker[ts] = None # Create an entry to track this timestamp
         msg = self.vehicle.message_factory.timesync_encode(
@@ -100,14 +124,10 @@ class TrackTimer:
         self.vehicle.flush()
     def actual(self):
         return self.fctime_nanos
-    def estimate(self):
-        if self.fctime_nanos:
-            self.delta = datetime.now() - self.mytimeus
-            return int(self.fctimeus + (self.delta.total_seconds() * 1000))
-        else:
-            return None
+    def difference(self):
+        return self.delta
 
-# Define target tracking class
+# TrackTargets class launches, controls and handles the separate track_targets process that does the actual vision processing.
 class TrackTargets:
     def __init__(self, args, calibration):
         self.state = None
@@ -190,7 +210,7 @@ class TrackTargets:
         if args.fakerangefinder:
             craft.send_distance_message(int(z*100))
         # Send the landing_target message to arducopter
-        craft.send_land_message(x,y,z, trackfctime.actual()/1000) # Send in micros, not nanos
+        craft.send_land_message(x,y,z, tracktime.actual()/1000) # Send in micros, not nanos
         # Track frame timing to calculate fps, running average over last 5 frames
         end_t = time()
         time_taken = end_t - self.start_t
@@ -198,8 +218,8 @@ class TrackTargets:
         self.frame_times.append(time_taken)
         self.frame_times = self.frame_times[-5:]
         fps = len(self.frame_times) / sum(self.frame_times)
-        # log.info("Fctime:"+str(trackfctime.estimate())+", Fps: "+str(fps)+", Alt:"+ str(craft.vehicle.location.global_relative_frame.alt)+", Rangefinder:"+ str(craft.vehicle.rangefinder.distance)+ ", Marker:"+ str(id)+ ", Distance:"+str(z)+ "xOffset:"+str(x)+ "yOffset:"+str(y))
-        log.info("Fctime:"+str(trackfctime.actual())+", Fps: "+str(fps)+", Alt:"+ str(craft.vehicle.location.global_relative_frame.alt)+", Rangefinder:"+ str(craft.vehicle.rangefinder.distance)+ ", Marker:"+ str(id)+ ", Distance:"+str(z)+ "xOffset:"+str(x)+ "yOffset:"+str(y))
+        # log.info("Fctime:"+str(tracktime.estimate())+", Fps: "+str(fps)+", Alt:"+ str(craft.vehicle.location.global_relative_frame.alt)+", Rangefinder:"+ str(craft.vehicle.rangefinder.distance)+ ", Marker:"+ str(id)+ ", Distance:"+str(z)+ "xOffset:"+str(x)+ "yOffset:"+str(y))
+        log.info("Fctime:"+str(tracktime.actual())+", Fps: "+str(fps)+", Alt:"+ str(craft.vehicle.location.global_relative_frame.alt)+", Rangefinder:"+ str(craft.vehicle.rangefinder.distance)+ ", Marker:"+ str(id)+ ", Distance:"+str(z)+ "xOffset:"+str(x)+ "yOffset:"+str(y))
     def start(self):
         if self.state == "initialised":
             log.info("Requesting track_targets to start tracking:"+str(craft.vehicle.mode))
@@ -223,7 +243,7 @@ class TrackTargets:
             self.process.terminate()
         self.shutdown = True
 
-# Define craft class
+# The Craft class connects to the flight controller and sends controlling messages
 class Craft:
     def __init__(self, connectstr):
         self.debug = False
@@ -236,7 +256,7 @@ class Craft:
             log.info("Precision loiter switch found: Channel "+str(self.precloiter_opt))
     def connect(self, connectstr):
         try:
-            self.vehicle = connect(connectstr, wait_ready=True)
+            self.vehicle = connect(connectstr, wait_ready=True, rate=1)
             self.connected = True
         except:
             self.connected = False
@@ -310,7 +330,7 @@ class Craft:
                 pass
         return _optch
 
-# Define class for signal tracking and handling
+# Class for signal tracking and handling.  This is used to accept Ctrl-C or SIGHUP/SIGKILL type events.
 class SigTrack:
     def __init__(self):
         self.counter = 0
@@ -335,6 +355,7 @@ class SigTrack:
 ### Define Functions
 ### ================================
 
+# Return correctly typed config parser option
 def get_config_value(parser, section, option):
     """Parses config value as python type"""
     try:
@@ -500,16 +521,25 @@ if not craft.connected:
 else:
     log.info("Connected to drone")
 
-# Create a new tracktimer object to try and keep sync with the flight controller
-trackfctime = TrackTimer(craft)
-trackfctime.debug = True
+# Create a new TrackTime object to try and keep sync with the flight controller
+log.info("Starting time synchronisation with flight controller")
+tracktime = TrackTime(craft)
+tracktime.debug = False
+# Perform the initial sync with the flight controller.  This blocks until the sync is complete.
+tracktime.initial_sync()
+log.info("Initial time sync complete, offset is {} ms".format(tracktime.difference()/1000000))
+log.info("Initial timesync delta bufer: {}".format(list(tracktime.delta_buffer)))
 
 # Set some parameters important to precision landing
 log.info("Setting flight controller parameters")
 craft.vehicle.parameters['PLND_ENABLED'] = 1 
 craft.vehicle.parameters['PLND_TYPE'] = 1 # Mavlink landing mode
-#if 'PLND_EST_TYPE' in craft.vehicle.parameters:
-    # craft.vehicle.parameters['PLND_EST_TYPE'] = 0 # https://github.com/ArduPilot/ardupilot/pull/5491, not yet in arducopter
+try:
+    if 'PLND_EST_TYPE' in craft.vehicle.parameters:
+        # TODO: Set a config parameter for estimator type
+        craft.vehicle.parameters['PLND_EST_TYPE'] = 0 # https://github.com/ArduPilot/ardupilot/pull/5491, not yet in arducopter
+except:
+    pass
 
 if args.fakerangefinder:
     # Following are for mavlink based rangefinder (not needed for 3.5-rc2+)
@@ -557,8 +587,8 @@ while True:
     # Update timesync between FC and CC, by sending current epoch in nanoseconds to the FC
     # TrackTime class will take care of receiving the response and calculating offset
     if loop_counter%10 == 0:
-        trackfctime.send_timesync(trackfctime.fctime_nanos)
-    
+        tracktime.update()
+
     # If craft mode has changed, take action
     if (args.controlprocessing and (craft.vehicle.armed and (craft.vehicle.mode == "LAND" or (craft.vehicle.mode == "LOITER" and (craft.precloiter_opt and craft.vehicle.channels[str(craft.precloiter_opt)] > 1800))))) and track_targets.state == "initialised":
         track_targets.start()
