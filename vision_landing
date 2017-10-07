@@ -20,6 +20,7 @@ from os import path, makedirs, symlink, remove
 from math import pi
 from re import sub, search
 from collections import deque
+from math import sqrt
 import signal
 import logging
 
@@ -71,7 +72,7 @@ class TrackTime:
         self.send_tracker = {}
         self.local_tracker = {}
         self.delta = None
-        self.delta_buffer = deque(maxlen=25) # Circular buffer to track timesync deltas
+        self.delta_buffer = deque(maxlen=50) # Circular buffer to track timesync deltas
         self.debug = False
         self.vehicle = craft.vehicle
         # Setup listener decorator
@@ -102,8 +103,9 @@ class TrackTime:
     # Blocking method to call once during startup, to calculate delta
     def initial_sync(self):
         # Keep sending timesync requests until the delta buffer is full
-        while len(list(self.delta_buffer)) < 25:
+        while len(list(self.delta_buffer)) < 50:
             self.update()
+            sleep(0.1) # Ardupilot can't cope with too many timesync messages being sent in a short time period, the results are nonsense
         # When full, average the delta buffer and then set that to use as the ongoing delta
         self.delta = sum(list(self.delta_buffer)) / len(list(self.delta_buffer))
     # Method to return local UCT time in nanoseconds since epoch.  Precision depends on platform.
@@ -256,9 +258,11 @@ class Craft:
             log.info("Precision loiter switch found: Channel "+str(self.precloiter_opt))
     def connect(self, connectstr):
         try:
-            self.vehicle = connect(connectstr, wait_ready=True, rate=1)
+            # self.vehicle = connect(connectstr, wait_ready=True, rate=1)
+            self.vehicle = connect(connectstr, wait_ready=True, baud=921600)
             self.connected = True
-        except:
+        except Exception,e:
+            log.critical("Error connecting to vehicle:"+str(repr(e)))
             self.connected = False
     # Define function to send distance_message mavlink message for mavlink based rangefinder, must be >10hz
     # http://mavlink.org/messages/common#DISTANCE_SENSOR
@@ -528,16 +532,33 @@ tracktime.debug = False
 # Perform the initial sync with the flight controller.  This blocks until the sync is complete.
 tracktime.initial_sync()
 log.info("Initial time sync complete, offset is {} ms".format(tracktime.difference()/1000000))
-log.info("Initial timesync delta bufer: {}".format(list(tracktime.delta_buffer)))
+# log.info("Initial timesync delta buffer: {}".format(list(tracktime.delta_buffer)))
+_daverage = sum(tracktime.delta_buffer) * 1.0 / len(tracktime.delta_buffer)
+_dvariance = map(lambda x: (x - _daverage)**2, tracktime.delta_buffer)
+_variance = sum(_dvariance) * 1.0 / len(_dvariance)
+# Calculate standard deviation of delta (latency) variance
+# A median standard deviation would probably be better here to represent jitter
+stddev = round((_variance ** 0.5 / 1000000), 2)
+jitterpercent = round((stddev / (tracktime.difference()/1000000)) * 100, 2)
+log.info("Initial timesync jitter (standard deviation of delta buffer): {} ms, {}% of average latency".format(stddev, jitterpercent))
+if jitterpercent > 20:
+    log.info("WARNING: Timesync jitter is VERY high. This will signficantly affect video frame -> inertial frame correlation.")
 
 # Set some parameters important to precision landing
 log.info("Setting flight controller parameters")
 craft.vehicle.parameters['PLND_ENABLED'] = 1 
 craft.vehicle.parameters['PLND_TYPE'] = 1 # Mavlink landing mode
+# Set estimator type to 'raw', as ekf estimator can be very erratic
 try:
     if 'PLND_EST_TYPE' in craft.vehicle.parameters:
         # TODO: Set a config parameter for estimator type
         craft.vehicle.parameters['PLND_EST_TYPE'] = 0 # https://github.com/ArduPilot/ardupilot/pull/5491, not yet in arducopter
+except:
+    pass
+# Set the precland buffer to 250ms.  This should give enough buffer space for even very slow computers
+try:
+    if 'PLND_BUFFER' in craft.vehicle.parameters:
+        craft.vehicle.parameters['PLND_BUFFER'] = 250
 except:
     pass
 
