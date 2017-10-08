@@ -68,7 +68,7 @@ class ThreadedReader:
 class TrackTime:
     def __init__(self, craft):
         self.fctime_nanos = 0
-        self.cctime_nanos = 0
+        self.mytime_nanos = 0
         self.send_tracker = {}
         self.local_tracker = {}
         self.delta = None
@@ -80,6 +80,7 @@ class TrackTime:
         def listener_timesync(subself, name, message):
             try:
                 self.send_tracker[message.ts1] = message.tc1
+                self.mytime_nanos = message.ts1 # Set the time that the message was sent
                 # Initial timestamp, just set as is
                 if message.ts1 == 0:
                     self.fctime_nanos = message.tc1
@@ -124,10 +125,14 @@ class TrackTime:
         )
         self.vehicle.send_mavlink(msg)
         self.vehicle.flush()
+    # Note: This returns the 'actual' time of the FC with the delay compensated, but is 
     def actual(self):
         return self.fctime_nanos
     def difference(self):
         return self.delta
+    # Return actual + time elapsed since actual set
+    def estimate(self):
+        return self.fctime_nanos + (self.current_timestamp() - self.mytime_nanos)
 
 # TrackTargets class launches, controls and handles the separate track_targets process that does the actual vision processing.
 class TrackTargets:
@@ -212,7 +217,9 @@ class TrackTargets:
         if args.fakerangefinder:
             craft.send_distance_message(int(z*100))
         # Send the landing_target message to arducopter
-        craft.send_land_message(x,y,z, tracktime.actual()/1000) # Send in micros, not nanos
+        # NOTE: This sends the current estimated fctime, NOT the time the frame was actually captured.
+        # So this does not allow for the CV processing time. This should be sending when the frame is actually captured, before processing.
+        craft.send_land_message(x,y,z, tracktime.estimate()/1000) # Send in micros, not nanos
         # Track frame timing to calculate fps, running average over last 5 frames
         end_t = time()
         time_taken = end_t - self.start_t
@@ -259,7 +266,9 @@ class Craft:
     def connect(self, connectstr):
         try:
             # self.vehicle = connect(connectstr, wait_ready=True, rate=1)
-            self.vehicle = connect(connectstr, wait_ready=True, baud=921600)
+            # self.vehicle = connect(connectstr, wait_ready=True)
+            # self.vehicle = connect(connectstr, wait_ready=['system_status','mode'], baud=921600)
+            self.vehicle = connect(connectstr, wait_ready=['system_status','mode'])
             self.connected = True
         except Exception,e:
             log.critical("Error connecting to vehicle:"+str(repr(e)))
@@ -532,7 +541,7 @@ tracktime.debug = False
 # Perform the initial sync with the flight controller.  This blocks until the sync is complete.
 tracktime.initial_sync()
 log.info("Initial time sync complete, offset is {} ms".format(tracktime.difference()/1000000))
-# log.info("Initial timesync delta buffer: {}".format(list(tracktime.delta_buffer)))
+log.info("Initial timesync delta buffer: {}".format(list(tracktime.delta_buffer)))
 _daverage = sum(tracktime.delta_buffer) * 1.0 / len(tracktime.delta_buffer)
 _dvariance = map(lambda x: (x - _daverage)**2, tracktime.delta_buffer)
 _variance = sum(_dvariance) * 1.0 / len(_dvariance)
@@ -594,6 +603,9 @@ while True:
     elif not search("^target:", line):
         if search("^error:", line):
             log.error("track_targets: "+sub("^error:","",line))
+        # Make sure to catch and process initcomp if it's in this initial queue
+        elif search("initcomp", line):
+            track_targets.processline(line)
         else:
             log.info("track_targets: "+line)
 
@@ -605,6 +617,7 @@ while True:
 log.info("Entering main tracking loop")
 loop_counter = 0
 while True:
+    # log.info("state:"+str(track_targets.state))
     # Update timesync between FC and CC, by sending current epoch in nanoseconds to the FC
     # TrackTime class will take care of receiving the response and calculating offset
     if loop_counter%10 == 0:
@@ -617,13 +630,12 @@ while True:
         track_targets.stop()
     elif not args.controlprocessing and track_targets.state == "initialised":
         track_targets.start()
-
     line = track_targets.reader.readline() # See if there are any tracking results in the queue
     if line:
         track_targets.processline(line)
     else:
-        # Add a short 10ms sleep to slow down the loop, otherwise it consumes 100% cpu.
-        sleep(0.01)
+        # Add a short 1ms sleep to slow down the loop, otherwise it consumes 100% cpu.
+        sleep(0.001)
 
     if args.simulator and not craft.vehicle.armed and not track_targets.shutdown:
         log.info("Landed")
