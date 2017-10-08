@@ -79,28 +79,28 @@ class TrackTime:
         @self.vehicle.on_message("TIMESYNC")
         def listener_timesync(subself, name, message):
             try:
+                if message.ts1 < self.mytime_nanos:
+                    log.info("Newer timesync message already received, ignoring")
+                    return False
                 self.send_tracker[message.ts1] = message.tc1
                 self.mytime_nanos = message.ts1 # Set the time that the message was sent
-                # Initial timestamp, just set as is
-                if message.ts1 == 0:
-                    self.fctime_nanos = message.tc1
+                _cts = self.current_timestamp()
+                _avg_ts = (self.local_tracker[message.ts1] + _cts)/2;
+                self._delta = _cts - _avg_ts # Calculuate the time delta
+                self.delta_buffer.append(self._delta) # Push the delta into the circular buffer
+                # If the averaged delta has been reached, use that, and update the delta from the latest buffer
+                # TODO: This still applies the averaged delta to the spot tc1 which is subject to jitter
+                if self.delta:
+                    self.delta = sum(list(self.delta_buffer)) / len(list(self.delta_buffer))
+                    self.fctime_nanos = message.tc1 - self.delta
+                # Otherwise use the spot delta from the incoming message
                 else:
-                    _cts = self.current_timestamp()
-                    _avg_ts = (self.local_tracker[message.ts1] + _cts)/2;
-                    self._delta = _cts - _avg_ts # Calculuate the time delta
-                    self.delta_buffer.append(self._delta) # Push the delta into the circular buffer
-                    # If the averaged delta has been reached, use that
-                    # TODO: This still applies the averaged delta to the spot tc1 which is subject to jitter
-                    if self.delta:
-                        self.fctime_nanos = message.tc1 + self.delta
-                    # Otherwise use the spot delta from the incoming message
-                    else:
-                        self.fctime_nanos = message.tc1 + self._delta
-                    if self.debug:
-                        print "Timesync message received:",message, self._delta, self.fctime_nanos
+                    self.fctime_nanos = message.tc1 - self._delta
+                if self.debug:
+                    log.debug("Timesync message received:"+", ".join([str(message), str(self._delta), str(self.fctime_nanos)]))
             except:
                 if self.debug:
-                    print "Error, unexpected timesync timestamp received:",message.ts1
+                    log.debug("Error, unexpected timesync timestamp received:"+str(message.ts1))
     # Blocking method to call once during startup, to calculate delta
     def initial_sync(self):
         # Keep sending timesync requests until the delta buffer is full
@@ -113,7 +113,6 @@ class TrackTime:
     def current_timestamp(self):
         return int((datetime.utcnow() - datetime(1970, 1, 1)).total_seconds() * 1000000000);
     # Request a timesync update from the flight controller
-    # def send_timesync(self, ts=self.fctime_nanos, tc=0):
     def update(self, ts=0, tc=0):
         if ts == 0:
             ts = self.current_timestamp()
@@ -125,13 +124,14 @@ class TrackTime:
         )
         self.vehicle.send_mavlink(msg)
         self.vehicle.flush()
-    # Note: This returns the 'actual' time of the FC with the delay compensated, but is 
+    # Note: This returns the 'actual' time of the FC with the delay compensated from the last sync event
     def actual(self):
         return self.fctime_nanos
     def difference(self):
         return self.delta
     # Return actual + time elapsed since actual set
     def estimate(self):
+        log.debug("Estimating time, fctime_nanos:"+str(self.fctime_nanos/1000)+", time since:"+str((self.current_timestamp() - self.mytime_nanos)/1000))
         return self.fctime_nanos + (self.current_timestamp() - self.mytime_nanos)
 
 # TrackTargets class launches, controls and handles the separate track_targets process that does the actual vision processing.
@@ -617,11 +617,8 @@ while True:
 log.info("Entering main tracking loop")
 loop_counter = 0
 while True:
-    # log.info("state:"+str(track_targets.state))
-    # Update timesync between FC and CC, by sending current epoch in nanoseconds to the FC
-    # TrackTime class will take care of receiving the response and calculating offset
-    if loop_counter%10 == 0:
-        tracktime.update()
+    # Update timesync
+    tracktime.update()
 
     # If craft mode has changed, take action
     if (args.controlprocessing and (craft.vehicle.armed and (craft.vehicle.mode == "LAND" or (craft.vehicle.mode == "LOITER" and (craft.precloiter_opt and craft.vehicle.channels[str(craft.precloiter_opt)] > 1800))))) and track_targets.state == "initialised":
@@ -630,12 +627,14 @@ while True:
         track_targets.stop()
     elif not args.controlprocessing and track_targets.state == "initialised":
         track_targets.start()
-    line = track_targets.reader.readline() # See if there are any tracking results in the queue
+
+    # See if there are any tracking results in the queue
+    line = track_targets.reader.readline()
     if line:
         track_targets.processline(line)
     else:
-        # Add a short 1ms sleep to slow down the loop, otherwise it consumes 100% cpu.
-        sleep(0.001)
+        # Add a short 1s sleep to slow down the loop, otherwise it consumes 100% cpu.
+        sleep(1)
 
     if args.simulator and not craft.vehicle.armed and not track_targets.shutdown:
         log.info("Landed")
