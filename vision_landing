@@ -41,6 +41,7 @@ class ThreadedReader:
                 line = pipe.readline().rstrip()
                 if line and qtype == "stdout":
                     queue.put(line)
+                    track_targets.processline(line)
                 elif line and qtype == "stderr":
                     queue.put("error:"+line)
         self.threadout = Thread(target = insertQueue, args = (self.stdout, self.queue))
@@ -69,10 +70,11 @@ class TrackTime:
     def __init__(self, craft):
         self.fctime_nanos = 0
         self.mytime_nanos = 0
-        self.send_tracker = {}
         self.local_tracker = {}
         self.delta = None
+        self.difference = None
         self.delta_buffer = deque(maxlen=50) # Circular buffer to track timesync deltas
+        self.difference_buffer = deque(maxlen=50) # Circular buffer to track difference between two systems
         self.debug = False
         self.vehicle = craft.vehicle
         # Setup listener decorator
@@ -82,20 +84,21 @@ class TrackTime:
                 if message.ts1 < self.mytime_nanos:
                     log.info("Newer timesync message already received, ignoring")
                     return False
-                self.send_tracker[message.ts1] = message.tc1
                 self.mytime_nanos = message.ts1 # Set the time that the message was sent
                 _cts = self.current_timestamp()
                 _avg_ts = (self.local_tracker[message.ts1] + _cts)/2;
                 self._delta = _cts - _avg_ts # Calculuate the time delta
                 self.delta_buffer.append(self._delta) # Push the delta into the circular buffer
                 # If the averaged delta has been reached, use that, and update the delta from the latest buffer
-                # TODO: This still applies the averaged delta to the spot tc1 which is subject to jitter
                 if self.delta:
                     self.delta = sum(list(self.delta_buffer)) / len(list(self.delta_buffer))
                     self.fctime_nanos = message.tc1 - self.delta
                 # Otherwise use the spot delta from the incoming message
                 else:
                     self.fctime_nanos = message.tc1 - self._delta
+                self.difference_buffer.append(self.mytime_nanos - self.fctime_nanos)
+                self.difference = sum(list(self.difference_buffer)) / len(list(self.difference_buffer))
+                # print "difference_buffer:",self.difference_buffer
                 if self.debug:
                     log.debug("Timesync message received:"+", ".join([str(message), str(self._delta), str(self.fctime_nanos)]))
             except:
@@ -103,12 +106,14 @@ class TrackTime:
                     log.debug("Error, unexpected timesync timestamp received:"+str(message.ts1))
     # Blocking method to call once during startup, to calculate delta
     def initial_sync(self):
-        # Keep sending timesync requests until the delta buffer is full
-        while len(list(self.delta_buffer)) < 50:
+        # Keep sending timesync requests until the delta buffer is full, or a timeout is reached
+        start_timesync = self.current_timestamp()
+        while len(list(self.delta_buffer)) < 50 and self.current_timestamp() - start_timesync < (15 * 1000000000):
             self.update()
             sleep(0.1) # Ardupilot can't cope with too many timesync messages being sent in a short time period, the results are nonsense
         # When full, average the delta buffer and then set that to use as the ongoing delta
-        self.delta = sum(list(self.delta_buffer)) / len(list(self.delta_buffer))
+        if len(self.delta_buffer) == 50:
+            self.delta = sum(list(self.delta_buffer)) / len(list(self.delta_buffer))
     # Method to return local UCT time in nanoseconds since epoch.  Precision depends on platform.
     def current_timestamp(self):
         return int((datetime.utcnow() - datetime(1970, 1, 1)).total_seconds() * 1000000000);
@@ -117,7 +122,6 @@ class TrackTime:
         if ts == 0:
             ts = self.current_timestamp()
         self.local_tracker[ts] = self.current_timestamp() # Create entry to correlate sending timestamp with actual localtime
-        self.send_tracker[ts] = None # Create an entry to track this timestamp
         msg = self.vehicle.message_factory.timesync_encode(
             tc,     # tc1
             ts      # ts1
@@ -127,12 +131,12 @@ class TrackTime:
     # Note: This returns the 'actual' time of the FC with the delay compensated from the last sync event
     def actual(self):
         return self.fctime_nanos
-    def difference(self):
-        return self.delta
     # Return actual + time elapsed since actual set
     def estimate(self):
-        log.debug("Estimating time, fctime_nanos:"+str(self.fctime_nanos/1000)+", time since:"+str((self.current_timestamp() - self.mytime_nanos)/1000))
-        return self.fctime_nanos + (self.current_timestamp() - self.mytime_nanos)
+        estmynanos = self.current_timestamp() - self.difference
+        estfcnanos = self.fctime_nanos + (self.current_timestamp() - self.mytime_nanos)
+        #log.debug("Estimate time: current-difference:"+str(estmynanos/1000000)+", fctime_nanos+elapsed:"+str(estfcnanos/1000000)+", difference:"+str((estmynanos - estfcnanos) / 1000000))
+        return estmynanos
 
 # TrackTargets class launches, controls and handles the separate track_targets process that does the actual vision processing.
 class TrackTargets:
@@ -538,20 +542,31 @@ else:
 log.info("Starting time synchronisation with flight controller")
 tracktime = TrackTime(craft)
 tracktime.debug = False
-# Perform the initial sync with the flight controller.  This blocks until the sync is complete.
-tracktime.initial_sync()
-log.info("Initial time sync complete, offset is {} ms".format(tracktime.difference()/1000000))
-log.info("Initial timesync delta buffer: {}".format(list(tracktime.delta_buffer)))
-_daverage = sum(tracktime.delta_buffer) * 1.0 / len(tracktime.delta_buffer)
-_dvariance = map(lambda x: (x - _daverage)**2, tracktime.delta_buffer)
-_variance = sum(_dvariance) * 1.0 / len(_dvariance)
-# Calculate standard deviation of delta (latency) variance
-# A median standard deviation would probably be better here to represent jitter
-stddev = round((_variance ** 0.5 / 1000000), 2)
-jitterpercent = round((stddev / (tracktime.difference()/1000000)) * 100, 2)
-log.info("Initial timesync jitter (standard deviation of delta buffer): {} ms, {}% of average latency".format(stddev, jitterpercent))
-if jitterpercent > 20:
-    log.info("WARNING: Timesync jitter is VERY high. This will signficantly affect video frame -> inertial frame correlation.")
+
+# Perform the initial sync with the flight controller.  This blocks until the sync is complete and good enough.
+while True:
+    tracktime.initial_sync()
+    if not tracktime.delta:
+        log.warn("Timesync not supported by flight controller. THIS CAN LEAD TO DANGEROUS AND UNPREDICTABLE BEHAVIOUR.")
+        break
+    log.info("Initial timesync complete, offset is {} ms".format(tracktime.delta/1000000))
+    log.info("Initial timesync difference is {} ms".format(tracktime.difference/1000000))
+    log.info("Initial timesync delta buffer: {}".format(list(tracktime.delta_buffer)))
+    _dvariance = map(lambda x: (x - tracktime.delta)**2, tracktime.delta_buffer)
+    _variance = sum(_dvariance) * 1.0 / len(_dvariance)
+    # Calculate standard deviation of delta (latency) variance
+    # A median standard deviation would probably be better here to represent jitter
+    stddev = round((_variance ** 0.5 / 1000000), 2)
+    jitterpercent = round((stddev / (tracktime.delta/1000000)) * 100, 2)
+    log.info("Initial timesync jitter (standard deviation of delta buffer): {} ms, {}% of average latency".format(stddev, jitterpercent))
+    if tracktime.delta/1000000 >= 40:
+        log.warning("Error: Timesync not good enough, trying again")
+        tracktime.delta_buffer.clear() # Clear the buffer to force a fresh resync
+        continue
+    else:
+        break
+    if jitterpercent > 25:
+        log.info("WARNING: Timesync jitter is very high. This will signficantly affect video frame -> inertial frame correlation.")
 
 # Set some parameters important to precision landing
 log.info("Setting flight controller parameters")
@@ -628,6 +643,7 @@ while True:
     elif not args.controlprocessing and track_targets.state == "initialised":
         track_targets.start()
 
+    """
     # See if there are any tracking results in the queue
     line = track_targets.reader.readline()
     if line:
@@ -635,7 +651,9 @@ while True:
     else:
         # Add a short 1s sleep to slow down the loop, otherwise it consumes 100% cpu.
         sleep(1)
-
+    """
+    sleep(1)
+    
     if args.simulator and not craft.vehicle.armed and not track_targets.shutdown:
         log.info("Landed")
         track_targets.end()
