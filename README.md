@@ -1,6 +1,6 @@
 # vision_landing
 
-** WARNING: This is undergoing major changes in preparation for a first release, support for slower platforms, time synchronisation with the flight controller and merging in RealSense support.  Please be VERY careful using vision_landing until this message disappears **
+_**WARNING: This project is discontinued and is of academic interest only. ArduPilot does not safely support vision based precision landing.  PLEASE DO NOT USE THIS CODE other than for experimental or learning purposes.  IT WILL behave dangerously.  You have been warned.**_
 
 ### Precision landing using visual targets.  
 This is a project to achieve precision landing on drones using ArduCopter firmware, using (monocular) vision alone.  Fiducial markers are printed and used as landing targets, and these targets provide orientation, location and distance information when combined with accurate size information of the markers and calibrated camera information.  No rangefinder is necessary, as the distance to target is obtained automatically through pose estimation of the markers.  
