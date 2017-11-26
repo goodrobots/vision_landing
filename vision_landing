@@ -41,7 +41,6 @@ class ThreadedReader:
                 line = pipe.readline().rstrip()
                 if line and qtype == "stdout":
                     queue.put(line)
-                    track_targets.processline(line)
                 elif line and qtype == "stderr":
                     queue.put("error:"+line)
         self.threadout = Thread(target = insertQueue, args = (self.stdout, self.queue))
