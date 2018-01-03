@@ -1,6 +1,6 @@
 # vision_landing
 
-_**WARNING: This project is discontinued and is of academic interest only. ArduPilot does not safely support vision based precision landing.  PLEASE DO NOT USE THIS CODE other than for experimental or learning purposes.  IT WILL behave dangerously.  You have been warned.**_
+_**WARNING: This project is currently discontinued and is of academic interest only. ArduPilot and PX4 autopilots do not yet safely support vision based precision landing.  PLEASE DO NOT USE THIS CODE other than for experimental or learning purposes.  IT WILL behave dangerously.  You have been warned.**_
 
 ### Precision landing using visual targets.  
 This is a project to achieve precision landing on drones using ArduCopter firmware, using (monocular) vision alone.  Fiducial markers are printed and used as landing targets, and these targets provide orientation, location and distance information when combined with accurate size information of the markers and calibrated camera information.  No rangefinder is necessary, as the distance to target is obtained automatically through pose estimation of the markers.  
@@ -8,11 +8,11 @@ This is a project to achieve precision landing on drones using ArduCopter firmwa
 Demonstrations
 --------------------
 ### vision_landing from RTL  
-<a href="https://www.youtube.com/watch?v=E5PEEvcGPGc" target="_new_"><img src="https://github.com/fnoop/vision_landing/blob/master/media/rtl-landing.png" width="400"></a>  
+<a href="https://www.youtube.com/watch?v=E5PEEvcGPGc" target="_new_"><img src="https://github.com/goodrobots/vision_landing/blob/master/media/rtl-landing.png" width="400"></a>  
 ### vision_landing using Infrared  
-<a href="https://www.youtube.com/watch?v=4ahQUu4kxuk" target="_new_"><img src="https://github.com/fnoop/vision_landing/blob/master/media/ir-gray.png" width="400"></a>  
+<a href="https://www.youtube.com/watch?v=4ahQUu4kxuk" target="_new_"><img src="https://github.com/goodrobots/vision_landing/blob/master/media/ir-gray.png" width="400"></a>  
 ### vision_landing using multiple video/data streams, colormapped in realtime  
-<a href="https://www.youtube.com/watch?v=OnWrUb7D-T4" target="_new_"><img src="https://github.com/fnoop/vision_landing/blob/master/media/ir-colormap.png" width="400"></a>
+<a href="https://www.youtube.com/watch?v=OnWrUb7D-T4" target="_new_"><img src="https://github.com/goodrobots/vision_landing/blob/master/media/ir-colormap.png" width="400"></a>
 ### Detection altitude using 720p video  
 Landing marker detected and locked on at 23 meters altitude, using very poor quality 720p video.  Much higher altitude can be expected using better quality camera/settings.  
 <img src="https://raw.githubusercontent.com/fnoop/vision_landing/master/media/23m-720p.png" width="400">  
@@ -50,26 +50,26 @@ Printing Targets/Markers
 --------------------
 The landing targets used in this project are called 'fiducial markers'.  Fiducial markers are encoded objects (think QR codes or bar codes) that are used by computer vision systems as reference points in a scene.  There are numerous different types of encodings, which are called 'dictionaries'.  The marker library used in this project (Aruco) has its own set of dictionaries, but it also supports other dictionary types such as AprilTags.  
 In order to perform the recommended calibration (detailed below in the next section), it is necessary to print a specific A4 marker board:  
- https://github.com/fnoop/vision_landing/blob/master/calibration/aruco_calibration_board_a4.pdf  
+ https://github.com/goodrobots/vision_landing/blob/master/calibration/aruco_calibration_board_a4.pdf  
 It is important to print this on A4 size paper in exactly the size and proportions given in the PDF, as there are specific properties of the board that are expected by the calibration process.  
 When it comes to the landing markers themselves, the size and format depends on the nature of the craft and landing situations.  The higher the craft normally flies or will start landing from, the larger the target needs to be in order to be detected.  However, larger targets are more difficult to produce, transport and store, and they become unreadable at lower altitudes as they exceed the Field of View of the camera.  If precision landing is acceptable from a lower altitude then a smaller target can be used.  Alternatively, multiple targets can be used with varying sizes, so a larger target can be used for high altitude lock-on, then the vision system can switch to smaller targets at lower altitude for better precision and to keep within the FoV.  
 Aruco recommends the 'ARUCO_MIP_36h12' dictionary for the best compromise between marker size and robustness.  
-<img src="https://github.com/fnoop/vision_landing/blob/master/markers/aruco_mip_36h12_00012.png" width="300">  
+<img src="https://github.com/goodrobots/vision_landing/blob/master/markers/aruco_mip_36h12_00012.png" width="300">  
 This is a 36bit (6x6) 250 element dictionary and the intermarker distance is smaller than other aruco dictionaries such as 16h3 (4x4), so it's possible after further testing that these dictionaries with smaller marker size are better for precision landing.  Indeed, practical testing has shown that using a dictionary with a smaller grid size (and hence larger element or 'pixel' size) gives much better results from altitude.  If a larger dictionary with lots of different tags is not required, then it is recommended to use a dictionary such as the AprilTags 16h5 dictionary.  
-<img src="https://github.com/fnoop/vision_landing/blob/master/markers/tag16_05_00011.png" width="300">  
+<img src="https://github.com/goodrobots/vision_landing/blob/master/markers/tag16_05_00011.png" width="300">  
 
 So to start with, it is recommended to print a couple of markers (at your choice of size, A4 or A3 are easy to print and a good start):  
- https://github.com/fnoop/vision_landing/blob/master/markers/aruco_mip_36h12_00012.png  
- https://github.com/fnoop/vision_landing/blob/master/markers/aruco_mip_36h12_00036.png  
+ https://github.com/goodrobots/vision_landing/blob/master/markers/aruco_mip_36h12_00012.png  
+ https://github.com/goodrobots/vision_landing/blob/master/markers/aruco_mip_36h12_00036.png  
 Once printed, measure the size of the marker (black edge to black edge) and this is fed as the marker size parameter to vision_landing.  However, note that you should either print the white border or mount the marker on a white background that leaves a white border around the black marker itself - the white border is important for reliable detection.  
 It is important that the markers do not deform, bend, flap or move, so it's advisable to mount them on something solid like board or perspex.  Cardboard mounting up to A1 size is easy to find in local print, craft or stationary shops.  It is particularly important to make sure the A4 calibration page is rigid when doing the calibration.  
 
 In order to address the problem of large markers exceeding the camera FoV at lower altitudes, multiple markers of differing sizes can be used.  As the craft descends in altitude locked on to a large marker, at some point a smaller marker will come into view and can be locked on to.  Marker boards can be used for increased robustness and accuracy.  An example of such a multiple marker board is included as an A1 PDF:
-https://github.com/fnoop/vision_landing/blob/master/markers/a1-landing.pdf  
-<img src="https://github.com/fnoop/vision_landing/blob/master/markers/a1-landing.png" width="300">  
+https://github.com/goodrobots/vision_landing/blob/master/markers/a1-landing.pdf  
+<img src="https://github.com/goodrobots/vision_landing/blob/master/markers/a1-landing.png" width="300">  
 After testing and experimentation, it was found to have less markers as close together as possible in a circular pattern, with small pattern grids and larger intermarker distances gave better results.  An updated marker board as below is preset as default in the config file:  
-https://github.com/fnoop/vision_landing/blob/master/markers/april16h5-landing-a1.pdf  
-<img src="https://github.com/fnoop/vision_landing/blob/master/markers/april16h5-landing-a1.png" width="300">  
+https://github.com/goodrobots/vision_landing/blob/master/markers/april16h5-landing-a1.pdf  
+<img src="https://github.com/goodrobots/vision_landing/blob/master/markers/april16h5-landing-a1.png" width="300">  
 
 Also during development and testing, it was found that as the smaller markers come into view, the detection bounces between the two which can cause oscillations or other unexpected (and undesirable!) behaviour of the UAV.  A configurable filter that helps to debounce the detection thresholds has been implemented and can be set in the config:  
 ```
@@ -100,7 +100,7 @@ There are two main components:
 
 track_targets must be compiled and installed into the main directory before vision_landing can be run.  vision_landing calls track_targets to do the actual target detection and vector calculations.
  ```
- git clone https://github.com/fnoop/vision_landing
+ git clone https://github.com/goodrobots/vision_landing
  cd vision_landing/src
  cmake . && make && make install
  ```
@@ -115,7 +115,7 @@ In order to provide startup at system boot and 'graceful' stop, a systemd manife
  ```  
 
  ### Maverick - Automated Installation
- The [Maverick](http://github.com/fnoop/maverick) project pre-installs everything necessary for vision_landing.  Flash-able OS images are available for multiple platforms.  To start vision_landing, ensure anything else that is using the camera is stopped, and simply use:  
+ The [Maverick](http://github.com/goodrobots/maverick) project pre-installs everything necessary for vision_landing.  Flash-able OS images are available for multiple platforms.  To start vision_landing, ensure anything else that is using the camera is stopped, and simply use:  
  `maverick start vision_landing`  
 
 
