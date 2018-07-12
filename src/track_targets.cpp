@@ -305,8 +305,8 @@ int main(int argc, char **argv)
     // Setup the marker detection
     double MarkerSize = args::get(markersize);
     MarkerDetector MDetector;
-    MDetector.setThresholdParams(7, 7);
-    MDetector.setThresholdParamRange(2, 0);
+    // MDetector.setThresholdParams(7, 7);
+    // MDetector.setThresholdParamRange(2, 0);
     std::map<uint32_t, MarkerPoseTracker> MTracker; // use a map so that for each id, we use a different pose tracker
     if (dict)
         MDetector.setDictionary(args::get(dict), 0.f);
