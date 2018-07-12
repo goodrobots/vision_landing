@@ -11,5 +11,5 @@ find_package(aruco REQUIRED)
 
 include_directories(${aruco_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS})
 target_link_libraries(track_targets ${aruco_LIBS} ${OpenCV_LIBS})
-
+link_directories(${aruco_LIB_DIR} ${OpenCV_INSTALL_PATH}/lib})
 install(PROGRAMS track_targets DESTINATION ${CMAKE_CURRENT_SOURCE_DIR}/..)
