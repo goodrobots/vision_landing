@@ -642,7 +642,6 @@ while True:
     elif not args.controlprocessing and track_targets.state == "initialised":
         track_targets.start()
 
-    """
     # See if there are any tracking results in the queue
     line = track_targets.reader.readline()
     if line:
@@ -650,9 +649,7 @@ while True:
     else:
         # Add a short 1s sleep to slow down the loop, otherwise it consumes 100% cpu.
         sleep(1)
-    """
-    sleep(1)
-    
+
     if args.simulator and not craft.vehicle.armed and not track_targets.shutdown:
         log.info("Landed")
         track_targets.end()
