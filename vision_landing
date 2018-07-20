@@ -214,8 +214,8 @@ class TrackTargets:
                     self.state = "initialised"
             return
         # Unpack and cast target data to correct types
-        [id,x,y,z] = trackdata[1:]
-        [id,x,y,z] = [int(id),float(x),float(y),float(z)]
+        [id,x,y,z,processtime] = trackdata[1:]
+        [id,x,y,z,processtime] = [int(id),float(x),float(y),float(z),float(processtime)]
         # If fake rangefinder distance is required, send it
         if args.fakerangefinder:
             craft.send_distance_message(int(z*100))
@@ -231,7 +231,7 @@ class TrackTargets:
         self.frame_times = self.frame_times[-5:]
         fps = len(self.frame_times) / sum(self.frame_times)
         # log.info("Fctime:"+str(tracktime.estimate())+", Fps: "+str(fps)+", Alt:"+ str(craft.vehicle.location.global_relative_frame.alt)+", Rangefinder:"+ str(craft.vehicle.rangefinder.distance)+ ", Marker:"+ str(id)+ ", Distance:"+str(z)+ "xOffset:"+str(x)+ "yOffset:"+str(y))
-        log.info("Fctime:"+str(tracktime.actual())+", Fps: "+str(fps)+", Alt:"+ str(craft.vehicle.location.global_relative_frame.alt)+", Rangefinder:"+ str(craft.vehicle.rangefinder.distance)+ ", Marker:"+ str(id)+ ", Distance:"+str(z)+ "xOffset:"+str(x)+ "yOffset:"+str(y))
+        log.info("Fctime:"+str(tracktime.actual())+", Fps: "+str(fps)+", Alt:"+ str(craft.vehicle.location.global_relative_frame.alt)+", Rangefinder:"+ str(craft.vehicle.rangefinder.distance)+ ", Marker:"+ str(id)+ ", Distance:"+str(z)+ ", xOffset:"+str(x)+ ", yOffset:"+str(y) + ", processTime:"+str(processtime))
     def start(self):
         if self.state == "initialised":
             log.info("Requesting track_targets to start tracking:"+str(craft.vehicle.mode))

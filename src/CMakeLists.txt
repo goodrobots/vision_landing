@@ -3,6 +3,11 @@ project (track_targets)
 find_package(aruco REQUIRED )
 find_package(OpenCV REQUIRED)
 
+option(USE_TIMERS "Set to OFF to disable timers" OFF)
+iF(USE_TIMERS)
+add_definitions(-DUSE_TIMERS)
+ENDIF()
+
 add_executable(track_targets track_targets.cpp)
 
 set(cpp_compile_flags "-std=gnu++11")

@@ -29,6 +29,7 @@ Run separately with: ./track_targets -d TAG36h11 /dev/video0 calibration.yml 0.2
 #include <opencv2/imgproc/imgproc.hpp>
 #include <opencv2/calib3d/calib3d.hpp>
 #include "aruco/aruco.h"
+#include "aruco/timers.h"
 
 using namespace cv;
 using namespace aruco;
@@ -248,21 +249,19 @@ int main(int argc, char **argv)
         inputheight = args::get(height);
 
     // If fps is specified then use, otherwise use default
-    // Note this doesn't seem to matter for network streaming, only when writing to file
     int inputfps = 30;
     if (fps)
         inputfps = args::get(fps);
 
     // If brightness is specified then use, otherwise use default
-    double inputbrightness = 0.5;
     if (brightness)
-        inputbrightness = args::get(brightness);
+        vreader.set(CAP_PROP_BRIGHTNESS, args::get(brightness));
 
     // Set camera properties
-    vreader.set(CAP_PROP_BRIGHTNESS, inputbrightness);
     vreader.set(CV_CAP_PROP_FRAME_WIDTH, inputwidth);
     vreader.set(CV_CAP_PROP_FRAME_HEIGHT, inputheight);
     vreader.set(CV_CAP_PROP_FPS, inputfps);
+    // vreader.set(CAP_PROP_BUFFERSIZE, 0); // Doesn't work yet with V4L2
 
     // Read and parse camera calibration data
     CamParam.readFromXMLFile(args::get(calibration));
@@ -307,7 +306,14 @@ int main(int argc, char **argv)
     MarkerDetector MDetector;
     MarkerDetector::Params &MParams = MDetector.getParameters();
     MDetector.setDetectionMode(aruco::DM_VIDEO_FAST, 0.02);
+    MParams.setAutoSizeSpeedUp(true,0.3);
+    MParams.maxThreads = -1; // -1 = all
     MParams.setCornerRefinementMethod(aruco::CORNER_SUBPIX);
+    MParams.NAttemptsAutoThresFix = 3; // This is the number of random threshold iterations when no markers found
+
+    // Tracking variables
+    float Ti = MParams.minSize;
+    int ThresHold = MParams.ThresHold;
 
     std::map<uint32_t, MarkerPoseTracker> MTracker; // use a map so that for each id, we use a different pose tracker
     if (dict)
@@ -374,7 +380,6 @@ int main(int argc, char **argv)
     // Main loop
     while (true)
     {
-
         // If signal for interrupt/termination was received, break out of main loop and exit
         if (sigflag)
         {
@@ -410,22 +415,25 @@ int main(int argc, char **argv)
             continue;
         }
 
-        // If camera isn't running, start it
-        /*
-        if (!vreader.isOpened())
-            vreader.open(args::get(input));
-        */
+        // Start a Timer
+        ScopedTimerEvents Timer("detectloop");
 
-        // Lodge clock for start of frame
+        // Copy image from input stream to cv matrix
+        vreader.grab();
+        Timer.add("GrabImage");
+        // Lodge clock for start of frame, after grabbing the frame but before decompressing/converting it.
+        // This is as close as we can get to the shutter time, to match to inertial frame.
         double framestart = CLOCK();
-
-        // Copy image from input stream to cv matrix, skip iteration if empty
-        vreader >> rawimage;
+        vreader.retrieve(rawimage);
+        Timer.add("DecodeImage");
+        
+        // Skip this loop iteration if the frame was empty
         if (rawimage.empty())
             continue;
 
         // Detect markers
         std::vector<Marker> Markers = MDetector.detect(rawimage);
+        Timer.add("MarkerDetect");
 
         // Order the markers in ascending size - we want to start with the smallest.
         std::map<float, uint32_t> markerAreas;
@@ -507,6 +515,7 @@ int main(int argc, char **argv)
                 }
             }
         }
+        Timer.add("MarkerLock");
 
         // Iterate through the markers, in order of size, and do pose estimation
         for (auto &markerArea : markerAreas)
@@ -534,10 +543,12 @@ int main(int argc, char **argv)
                 }
             }
         }
+        Timer.add("PoseEstimation");
 
         // Iterate through each detected marker and send data for active marker and draw green AR cube, otherwise draw red AR square
         for (unsigned int i = 0; i < Markers.size(); i++)
         {
+            double processtime = CLOCK() - framestart;
             // If marker id matches current active marker, draw a green AR cube
             if (Markers[i].id == active_marker)
             {
@@ -545,7 +556,7 @@ int main(int argc, char **argv)
                 {
                     Markers[i].draw(rawimage, Scalar(0, 255, 0), 2, false);
                 }
-                // If pose estimation was successful, draw AR cube and distance
+                // If pose estimation was successful, calculate data and output to anyone listening.
                 if (Markers[i].Tvec.at<float>(0, 2) > 0)
                 {
                     // Calculate vector norm for distance
@@ -554,23 +565,32 @@ int main(int argc, char **argv)
                     double xoffset = (Markers[i].getCenter().x - inputwidth / 2.0) * (fovx * (pi / 180)) / inputwidth;
                     double yoffset = (Markers[i].getCenter().y - inputheight / 2.0) * (fovy * (pi / 180)) / inputheight;
                     if (verbose)
-                        std::cout << "debug:active_marker:" << active_marker << ":center~" << Markers[i].getCenter() << ":area~" << Markers[i].getArea() << ":marker~" << Markers[i] << ":vectorz~" << Markers[i].Tvec.at<float>(0, 2) << ":vectornorm~" << distance << std::endl;
-                    std::cout << "target:" << Markers[i].id << ":" << xoffset << ":" << yoffset << ":" << distance << std::endl;
+                    {
+                        Ti = MParams.minSize;
+                        ThresHold = MParams.ThresHold;
+                        std::cout << "debug:active_marker:" << active_marker << ":center~" << Markers[i].getCenter() << ":area~" << Markers[i].getArea() << ":marker~" << Markers[i] << ":vectornorm~" << distance << ":Ti~" << Ti << ":ThresHold~" << ThresHold << ":Markers~" << Markers.size() << ":processtime~" << processtime << std::endl;
+                    }
+                    std::cout << "target:" << Markers[i].id << ":" << xoffset << ":" << yoffset << ":" << distance << ":" << processtime << std::endl;
+                    Timer.add("SendMessage");
+                    // Draw AR cube and distance
                     if (output)
                     { // don't burn cpu cycles if no output
                         drawARLandingCube(rawimage, Markers[i], CamParam);
                         CvDrawingUtils::draw3dAxis(rawimage, Markers[i], CamParam);
                         drawVectors(rawimage, Scalar(0, 255, 0), 1, (i + 1) * 20, Markers[i].id, xoffset, yoffset, distance, Markers[i].getCenter().x, Markers[i].getCenter().y);
+                        Timer.add("DrawGreenAR");
                     }
                 }
                 // Otherwise draw a red square
             }
             else
             {
+                std::cout << "debug:inactive_marker:center~" << Markers[i].getCenter() << ":area~" << Markers[i].getArea() << ":marker~" << Markers[i] << ":Ti~" << Ti << ":ThresHold~" << ThresHold << ":Markers~" << Markers.size() << ":processtime~" << processtime << std::endl;
                 if (output)
                 { // don't burn cpu cycles if no output
                     Markers[i].draw(rawimage, Scalar(0, 0, 255), 2, false);
                     drawVectors(rawimage, Scalar(0, 0, 255), 1, (i + 1) * 20, Markers[i].id, 0, 0, Markers[i].Tvec.at<float>(0, 2), Markers[i].getCenter().x, Markers[i].getCenter().y);
+                    Timer.add("DrawRedAR");
                 }
             }
         }
@@ -578,10 +598,12 @@ int main(int argc, char **argv)
         if (output && args::get(output) != "window")
         {
             writer << rawimage;
+            Timer.add("OutputImage");
         }
         else if (output && args::get(output) == "window")
         {
             imshow("vision_landing", rawimage);
+            Timer.add("OutputImage");
         }
 
         // Lodge clock for end of frame
@@ -591,7 +613,10 @@ int main(int argc, char **argv)
         char framestr[100];
         sprintf(framestr, "debug:avgframedur~%fms:fps~%f:frameno~%d:", avgdur(framedur), avgfps(), frameno++);
         if (verbose && (frameno % 100 == 1))
+        {
             std::cout << framestr << std::endl;
+        }
+        Timer.add("EndofLoop");
     }
 
     std::cout << "info:track_targets complete, exiting" << std::endl;
