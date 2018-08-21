@@ -9,7 +9,7 @@
 # It launches a separate program track_targets which does the actual cv work and captures the resulting vectors from non-blocking thread handler.
 
 from threading import Thread, Event
-from Queue import Queue, Empty
+from Queue import LifoQueue, Queue, Empty
 from subprocess import Popen, PIPE
 from dronekit import connect, VehicleMode, LocationGlobal, LocationGlobalRelative
 from pymavlink import mavutil
@@ -23,6 +23,7 @@ from collections import deque
 from math import sqrt
 import signal
 import logging
+import ctypes
 
 ### ================================
 ### Define Classes
@@ -34,11 +35,14 @@ class ThreadedReader:
     def __init__(self, stdout, stderr):
         self.stdout = stdout
         self.stderr = stderr
-        self.queue = Queue()
+        self.queue = LifoQueue()
         self._stop = Event()
         def insertQueue(pipe, queue, qtype="stdout"):
             while not self.stopped():
-                line = pipe.readline().rstrip()
+                self.clear() # Clear the queue before adding anything - we only want the latest data
+                line = pipe.readline().rstrip() + ":{:.0f}".format(monotonic_time())
+                if args.verbose:
+                    log.debug("Adding line: {} : {}".format(qtype, line))
                 if line and qtype == "stdout":
                     queue.put(line)
                 elif line and qtype == "stderr":
@@ -49,14 +53,25 @@ class ThreadedReader:
         self.threaderr = Thread(target = insertQueue, args = (self.stderr, self.queue, "stderr"))
         self.threaderr.daemon = True
         self.threaderr.start()
+    def size(self):
+        return self.queue.qsize()
     def readline(self, timeout = None):
         try:
-            return self.queue.get(block = timeout is not None, timeout = timeout)
+            line = self.queue.get(block = timeout is not None, timeout = timeout)
+            self.queue.task_done()
+            return line
         except Empty:
+            log.debug("empty queue")
             return None
     def clear(self):
-        with self.queue.mutex:
-            self.queue.queue.clear()
+        #with self.queue.mutex:
+        #    self.queue.clear()
+        while self.size() > 10:
+            # self.readline()
+            tmpline = self.queue.get(False)
+            log.debug("clearing queue: {} : {}".format(self.size(), tmpline))
+            self.queue.task_done()
+        return
     def stop(self):
         self._stop.set()
     def stopped(self):
@@ -76,16 +91,18 @@ class TrackTime:
         self.difference_buffer = deque(maxlen=50) # Circular buffer to track difference between two systems
         self.debug = False
         self.vehicle = craft.vehicle
+        # Setup time struct to hold local monotonic clock queries
+        self.t = timespec()
         # Setup listener decorator
         @self.vehicle.on_message("TIMESYNC")
         def listener_timesync(subself, name, message):
             try:
                 if message.ts1 < self.mytime_nanos:
-                    log.info("Newer timesync message already received, ignoring")
+                    #log.info("Newer timesync message already received, ignoring")
                     return False
                 self.mytime_nanos = message.ts1 # Set the time that the message was sent
                 _cts = self.current_timestamp()
-                _avg_ts = (self.local_tracker[message.ts1] + _cts)/2;
+                _avg_ts = (self.local_tracker[message.ts1] + _cts)/2
                 self._delta = _cts - _avg_ts # Calculuate the time delta
                 self.delta_buffer.append(self._delta) # Push the delta into the circular buffer
                 # If the averaged delta has been reached, use that, and update the delta from the latest buffer
@@ -97,7 +114,6 @@ class TrackTime:
                     self.fctime_nanos = message.tc1 - self._delta
                 self.difference_buffer.append(self.mytime_nanos - self.fctime_nanos)
                 self.difference = sum(list(self.difference_buffer)) / len(list(self.difference_buffer))
-                # print "difference_buffer:",self.difference_buffer
                 if self.debug:
                     log.debug("Timesync message received:"+", ".join([str(message), str(self._delta), str(self.fctime_nanos)]))
             except:
@@ -113,9 +129,11 @@ class TrackTime:
         # When full, average the delta buffer and then set that to use as the ongoing delta
         if len(self.delta_buffer) == 50:
             self.delta = sum(list(self.delta_buffer)) / len(list(self.delta_buffer))
-    # Method to return local UCT time in nanoseconds since epoch.  Precision depends on platform.
+        else:
+            log.warning("Error creating timesync delta buffer - unpredictable results will follow")
+    # Method to return monotonic clock time
     def current_timestamp(self):
-        return int((datetime.utcnow() - datetime(1970, 1, 1)).total_seconds() * 1000000000);
+        return monotonic_time()
     # Request a timesync update from the flight controller
     def update(self, ts=0, tc=0):
         if ts == 0:
@@ -133,9 +151,11 @@ class TrackTime:
     # Return actual + time elapsed since actual set
     def estimate(self):
         estmynanos = self.current_timestamp() - self.difference
-        estfcnanos = self.fctime_nanos + (self.current_timestamp() - self.mytime_nanos)
+        estfcnanos = self.actual() + (self.current_timestamp() - self.mytime_nanos)
         #log.debug("Estimate time: current-difference:"+str(estmynanos/1000000)+", fctime_nanos+elapsed:"+str(estfcnanos/1000000)+", difference:"+str((estmynanos - estfcnanos) / 1000000))
         return estmynanos
+    def toFcTime(self, inTime):
+        return inTime - self.difference
 
 # TrackTargets class launches, controls and handles the separate track_targets process that does the actual vision processing.
 class TrackTargets:
@@ -214,24 +234,30 @@ class TrackTargets:
                     self.state = "initialised"
             return
         # Unpack and cast target data to correct types
-        [id,x,y,z,processtime] = trackdata[1:]
-        [id,x,y,z,processtime] = [int(id),float(x),float(y),float(z),float(processtime)]
+        try:
+            [id,x,y,z,processtime,sensorTimestamp,sendTimestamp,receiveTimestamp] = trackdata[1:]
+            [id,x,y,z,processtime,sensorTimestamp,sendTimestamp,receiveTimestamp] = [int(id),float(x),float(y),float(z),float(processtime),float(sensorTimestamp),float(sendTimestamp),float(receiveTimestamp)]
+        except:
+            log.debug("track_targets: error in data: " + str(line.rstrip()))
+            return
         # If fake rangefinder distance is required, send it
         if args.fakerangefinder:
             craft.send_distance_message(int(z*100))
         # Send the landing_target message to arducopter
         # NOTE: This sends the current estimated fctime, NOT the time the frame was actually captured.
         # So this does not allow for the CV processing time. This should be sending when the frame is actually captured, before processing.
-        craft.send_land_message(x,y,z, tracktime.estimate()/1000) # Send in micros, not nanos
-        # Track frame timing to calculate fps, running average over last 5 frames
+        nowTime = monotonic_time()
+        # If data is less than 250ms since the image shuttr, send the message.
+        if nowTime - sensorTimestamp < 250 * 1e+6:
+            craft.send_land_message(x, y, z, tracktime.toFcTime(sensorTimestamp) / 1000, id) # Send sensor timestamp adjusted to timesync, in micros
+        # Track frame timing to calculate fps, running average over last 10 frames
         end_t = time()
         time_taken = end_t - self.start_t
         self.start_t = end_t
         self.frame_times.append(time_taken)
-        self.frame_times = self.frame_times[-5:]
+        self.frame_times = self.frame_times[-10:]
         fps = len(self.frame_times) / sum(self.frame_times)
-        # log.info("Fctime:"+str(tracktime.estimate())+", Fps: "+str(fps)+", Alt:"+ str(craft.vehicle.location.global_relative_frame.alt)+", Rangefinder:"+ str(craft.vehicle.rangefinder.distance)+ ", Marker:"+ str(id)+ ", Distance:"+str(z)+ "xOffset:"+str(x)+ "yOffset:"+str(y))
-        log.info("Fctime:"+str(tracktime.actual())+", Fps: "+str(fps)+", Alt:"+ str(craft.vehicle.location.global_relative_frame.alt)+", Rangefinder:"+ str(craft.vehicle.rangefinder.distance)+ ", Marker:"+ str(id)+ ", Distance:"+str(z)+ ", xOffset:"+str(x)+ ", yOffset:"+str(y) + ", processTime:"+str(processtime))
+        log.info("Fctime:{:.0f}:{:.0f}, Fps:{:.2f}, Alt:{}, Rng:{}, Marker:{}, Distance:{}, xOffset:{}, yOffset:{}, processTime:{:.0f}, sensorTime:{:.0f}, sendTime:{:.0f}, receiveTime:{:.0f}, currentTime:{:.0f}, sensorDiff:{}, sendDiff:{}, receiveDiff:{}".format(tracktime.actual(), tracktime.estimate(), fps, craft.vehicle.location.global_relative_frame.alt, craft.vehicle.rangefinder.distance, id, z, x, y, processtime, sensorTimestamp, sendTimestamp, receiveTimestamp, nowTime, nowTime - sensorTimestamp, nowTime - sendTimestamp, nowTime - receiveTimestamp))
     def start(self):
         if self.state == "initialised":
             log.info("Requesting track_targets to start tracking:"+str(craft.vehicle.mode))
@@ -239,8 +265,6 @@ class TrackTargets:
             self.state = "started"
         else:
             log.info("Request to start track_targets tracking failed, state is not 'initialised'")
-        # self.state = "started"
-        # self.process.stdin.write("BLAAAAAAH!\n") # This doesn't work yet
     def stop(self):
         log.info("Requesting track_targets to stop tracking:"+str(craft.vehicle.mode))
         self.state = "initialised"
@@ -295,21 +319,27 @@ class Craft:
             log.debug("Sending mavlink distance_message:" +str(dist))
     # Define function to send landing_target mavlink message for mavlink based precision landing
     # http://mavlink.org/messages/common#LANDING_TARGET
-    def send_land_message(self, x,y,z, time_usec=0):
+    def send_land_message(self, x,y,z, time_usec=0, target_num=0):
         msg = self.vehicle.message_factory.landing_target_encode(
-            time_usec,          # time since system boot, not used
-            0,          # target num, not used
+            time_usec,          # time target data was processed, as close to sensor capture as possible
+            target_num,          # target num, not used
             mavutil.mavlink.MAV_FRAME_BODY_NED, # frame, not used
             x,          # X-axis angular offset, in radians
             y,          # Y-axis angular offset, in radians
             z,          # distance, in meters
             0,          # Target x-axis size, in radians
-            0           # Target y-axis size, in radians
+            0,          # Target y-axis size, in radians
+            0,          # x	float	X Position of the landing target on MAV_FRAME
+            0,          # y	float	Y Position of the landing target on MAV_FRAME
+            0,          # z	float	Z Position of the landing target on MAV_FRAME
+            (1,0,0,0),  # q	float[4]	Quaternion of landing target orientation (w, x, y, z order, zero-rotation is 1, 0, 0, 0)
+            2,          # type of landing target: 2 = Fiducial marker
+            1,          # position_valid boolean
         )
         self.vehicle.send_mavlink(msg)
         self.vehicle.flush()
         if args.verbose:
-            log.debug("Sending mavlink landing_target:"+str(x)+" "+str(y)+" "+str(z))
+            log.debug("Sending mavlink landing_target - time_usec:{:.0f}, x:{}, y:{}, z:{}".format(time_usec, str(x), str(y), str(z)))
     # Define function that arms and takes off, used for testing in SITL
     # Lifted from dronekit-python examples
     def arm_and_takeoff(self, targetAltitude):
@@ -527,6 +557,25 @@ sigtracker = SigTrack()
 signal.signal(signal.SIGINT, sigtracker.handle_sig)
 signal.signal(signal.SIGTERM, sigtracker.handle_sig)
 
+# Setup monotonic clock
+CLOCK_MONOTONIC_RAW = 4
+class timespec(ctypes.Structure):
+    _fields_ = [
+        ('tv_sec', ctypes.c_long),
+        ('tv_nsec', ctypes.c_long)
+    ]
+librt = ctypes.CDLL('librt.so.1', use_errno=True)
+clock_gettime = librt.clock_gettime
+clock_gettime.argtypes = [ctypes.c_int, ctypes.POINTER(timespec)]
+
+def monotonic_time():
+    t = timespec()
+    if clock_gettime(CLOCK_MONOTONIC_RAW , ctypes.pointer(t)) != 0:
+        errno_ = ctypes.get_errno()
+        raise OSError(errno_, os.strerror(errno_))
+    return (t.tv_sec * 1e+9) + t.tv_nsec
+
+
 # Connect to the Vehicle
 log.info("Connecting to drone on: %s" % args.connect)
 craft = Craft(args.connect)
@@ -546,7 +595,7 @@ tracktime.debug = False
 while True:
     tracktime.initial_sync()
     if not tracktime.delta:
-        log.warn("Timesync not supported by flight controller. THIS CAN LEAD TO DANGEROUS AND UNPREDICTABLE BEHAVIOUR.")
+        log.warning("Timesync not supported by flight controller. THIS CAN LEAD TO DANGEROUS AND UNPREDICTABLE BEHAVIOUR.")
         break
     log.info("Initial timesync complete, offset is {} ms".format(tracktime.delta/1000000))
     log.info("Initial timesync difference is {} ms".format(tracktime.difference/1000000))
@@ -569,13 +618,13 @@ while True:
 
 # Set some parameters important to precision landing
 log.info("Setting flight controller parameters")
-craft.vehicle.parameters['PLND_ENABLED'] = 1 
-craft.vehicle.parameters['PLND_TYPE'] = 1 # Mavlink landing mode
+craft.vehicle.parameters['PLND_ENABLED'] = 1
+craft.vehicle.parameters['PLND_TYPE'] = 1 # Mavlink landing backend
 # Set estimator type to 'raw', as ekf estimator can be very erratic
 try:
     if 'PLND_EST_TYPE' in craft.vehicle.parameters:
         # TODO: Set a config parameter for estimator type
-        craft.vehicle.parameters['PLND_EST_TYPE'] = 0 # https://github.com/ArduPilot/ardupilot/pull/5491, not yet in arducopter
+        craft.vehicle.parameters['PLND_EST_TYPE'] = 0
 except:
     pass
 # Set the precland buffer to 250ms.  This should give enough buffer space for even very slow computers
@@ -604,7 +653,7 @@ if args.simulator:
         craft.vehicle.parameters['RNGFND_SCALING'] = 12.12
     # Take off to 25m altitude and start landing if not already armed
     if not craft.vehicle.armed:
-        craft.arm_and_takeoff(25)
+        craft.arm_and_takeoff(100)
         # Start landing
         log.info("Starting landing...")
         craft.vehicle.mode = VehicleMode("LAND")
@@ -643,12 +692,18 @@ while True:
         track_targets.start()
 
     # See if there are any tracking results in the queue
-    line = track_targets.reader.readline()
+    #log.debug("Main loop: Before readline: {:.0f}".format(monotonic_time()))
+    line = track_targets.reader.readline(1)
+    #log.debug("Main loop: After readline: {:.0f}".format(monotonic_time()))
     if line:
+        if args.verbose:
+            log.debug("queue size:{}, ourtime:{:.0f}, line:{}".format(track_targets.reader.size(), monotonic_time(), line))
         track_targets.processline(line)
+        #log.debug("Main loop: After processline: {:.0f}".format(monotonic_time()))
     else:
-        # Add a short 1s sleep to slow down the loop, otherwise it consumes 100% cpu.
-        sleep(1)
+        # Add a short 100ms sleep to slow down the loop, otherwise it consumes 100% cpu.
+        log.debug("Main loop queue read empty, sleeping for a few ms")
+        sleep(0.1)
 
     if args.simulator and not craft.vehicle.armed and not track_targets.shutdown:
         log.info("Landed")
