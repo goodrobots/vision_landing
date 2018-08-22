@@ -19,15 +19,21 @@ Run separately with: ./track_targets -d TAG36h11 /dev/video0 calibration.yml 0.2
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <thread>
+#include <atomic>
 #include <queue>
 #include <signal.h>
 #include <poll.h>
 #include <ctime>
 #include <sys/select.h>
+
 #include "args.hxx"
+#include "pkQueueTS.hpp"
+
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
 #include <opencv2/calib3d/calib3d.hpp>
+
 #include "aruco/aruco.h"
 #include "aruco/timers.h"
 
@@ -167,12 +173,92 @@ void changeActiveMarker(std::map<uint32_t, std::queue<int>> &marker_history_queu
     }
 }
 
+// Setup our incoming threaded camera feed
+struct TimeCapsuleVars
+{
+    uint64_t timeStamp = 0;
+    uint64_t frameNum = 0;
+};
+typedef MatCapsule_<TimeCapsuleVars> MatTimeCapsule;
+pkQueueTS<MatTimeCapsule> incomingQueue;
+atomic<bool> grabState;
+
+// Initiate camera
+cv::VideoCapture vreader;
+
+// Thread to control capture device and push frames onto the threadsafe queue
+void incomingThread()
+{
+    // Enable capture input
+    grabState = true;
+    // Incoming frame
+    MatTimeCapsule iframe;
+    uint64_t frameNum = 0;
+    std::cout << "Starting incomingThread()" << std::endl;
+
+    while (grabState)
+    {
+        // Read the next frame in from the camera and push it to back of queue
+        // std::cout << "debug:Pushing camera frame to queue" << std::endl;
+        vreader.grab();
+        // Lodge clock for start of frame, after grabbing the frame but before decompressing/converting it.
+        // This is as close as we can get to the shutter time, for a better match to inertial frame.
+        frameNum++;
+        iframe.vars.frameNum = frameNum;
+        iframe.vars.timeStamp = CLOCK() * 1e+6;
+        // Now process the grabbed frame
+        vreader.retrieve(iframe.mat);
+        // Push the timeframe capsule onto the queue, ready for collection and processing
+        incomingQueue.Push(iframe);
+        
+        // If there is more than 1 frame in the queue, pop the rest to prevent buildup
+        while (incomingQueue.Size() > 1)
+            incomingQueue.Pop(iframe);
+
+    }
+}
+
+// Setup our outgoing threaded video stream
+pkQueueTS< MatCapsule > outgoingQueue;
+atomic<bool> pushState;
+// Initiate stream
+cv::VideoWriter vwriter;
+// Thread to control writer device, read frames from the threadsafe queue and push into the video stream
+void outgoingThread()
+{
+    // Enable stream output
+    pushState = true;
+    // Outgoing frame
+    MatCapsule oframe;
+    std::cout << "Starting outgoingThread()" << std::endl;
+
+    while (pushState)
+    {
+        int qsize = outgoingQueue.Size();
+        // Read frame in from the queue and push it to stream
+        if (qsize > 0) 
+        {
+            std::cout << "debug:Pushing output frame to stream:" << qsize << std::endl;
+            // If the queue already has more than 1 frame then pop it, to prevent buildup
+            // We only want to send the latest frame
+            while (qsize > 1)
+                outgoingQueue.Pop(oframe);
+            // Pop the frame off the queue and push to stream
+            outgoingQueue.Pop(oframe);
+            vwriter.write(oframe.mat);
+        }
+    }
+}
+
 // main..
 int main(int argc, char **argv)
 {
     // Unbuffer stdout and stdin
     std::cout.setf(std::ios::unitbuf);
     std::ios_base::sync_with_stdio(false);
+
+    // Make sure std::cout does not show scientific notation
+    std::cout.setf(ios::fixed);
 
     // Setup arguments for parser
     args::ArgumentParser parser("Track fiducial markers and estimate pose, output translation vectors for vision_landing");
@@ -222,10 +308,8 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    // Setup core objects
-    aruco::CameraParameters CamParam;
-    Mat rawimage;
-    VideoCapture vreader(args::get(input));
+    // Open camera
+    vreader.open( args::get(input) );
 
     // Bail if camera can't be opened
     if (!vreader.isOpened())
@@ -264,6 +348,7 @@ int main(int argc, char **argv)
     // vreader.set(CAP_PROP_BUFFERSIZE, 0); // Doesn't work yet with V4L2
 
     // Read and parse camera calibration data
+    aruco::CameraParameters CamParam;
     CamParam.readFromXMLFile(args::get(calibration));
     if (!CamParam.isValid())
     {
@@ -272,6 +357,8 @@ int main(int argc, char **argv)
     }
 
     // Take a single image and resize calibration parameters based on input stream dimensions
+    // Note we read directly from vreader here because we haven't turned the reader thread on yet
+    Mat rawimage;
     vreader >> rawimage;
     CamParam.resize(rawimage.size());
 
@@ -281,25 +368,31 @@ int main(int argc, char **argv)
     const double fovy = 2 * atan(inputheight / (2 * CamParam.CameraMatrix.at<float>(1, 1))) * (180.0 / pi);
     std::cout << "info:FoVx~" << fovx << ":FoVy~" << fovy << ":vWidth~" << inputwidth << ":vHeight~" << inputheight << std::endl;
 
-    // Create an output object, if output specified then setup the pipeline unless output is set to 'window'
-    VideoWriter writer;
+    // Turn on incoming thread
+    std::thread inThread(incomingThread);
+    MatTimeCapsule iframe;
+
+    // If output specified then setup the pipeline unless output is set to 'window'
     if (output && args::get(output) != "window")
     {
         if (fourcc)
         {
             std::string _fourcc = args::get(fourcc);
-            writer.open(args::get(output), CV_FOURCC(_fourcc[0], _fourcc[1], _fourcc[2], _fourcc[3]), inputfps, cv::Size(inputwidth, inputheight), true);
+            vwriter.open(args::get(output), CV_FOURCC(_fourcc[0], _fourcc[1], _fourcc[2], _fourcc[3]), inputfps, cv::Size(inputwidth, inputheight), true);
         }
         else
         {
-            writer.open(args::get(output), 0, inputfps, cv::Size(inputwidth, inputheight), true);
+            vwriter.open(args::get(output), 0, inputfps, cv::Size(inputwidth, inputheight), true);
         }
-        if (!writer.isOpened())
+        if (!vwriter.isOpened())
         {
             std::cerr << "Error can't create video writer" << std::endl;
             return 1;
         }
     }
+    // Turn on writer thread
+    std::thread outThread(outgoingThread);
+    MatCapsule oframe;
 
     // Setup the marker detection
     double MarkerSize = args::get(markersize);
@@ -307,7 +400,7 @@ int main(int argc, char **argv)
     MarkerDetector::Params &MParams = MDetector.getParameters();
     MDetector.setDetectionMode(aruco::DM_VIDEO_FAST, 0.02);
     MParams.setAutoSizeSpeedUp(true,0.3);
-    MParams.maxThreads = -1; // -1 = all
+    MParams.maxThreads = 1; // -1 = all
     MParams.setCornerRefinementMethod(aruco::CORNER_SUBPIX);
     MParams.NAttemptsAutoThresFix = 3; // This is the number of random threshold iterations when no markers found
 
@@ -321,14 +414,6 @@ int main(int argc, char **argv)
 
     // Start framecounter at 0 for fps tracking
     int frameno = 0;
-
-    // Setup stdin listener
-    /*
-    string incommand;
-    pollfd cinfd[1];
-    cinfd[0].fd = fileno(stdin);
-    cinfd[0].events = POLLIN;
-    */
 
     // Create a map of marker sizes from 'sizemapping' config setting
     std::map<uint32_t, float> markerSizes;
@@ -387,52 +472,38 @@ int main(int argc, char **argv)
             break;
         }
 
-        // Listen for commands on stdin
-        // This doesn't work yet, it does weird things as soon as something comes in on stdin
-        /*
-        if (poll(cinfd, 1, 1000))
-        {
-            cout << "INCOMING MESSAGE!:" << endl;
-            // getline(cin, incommand);
-            // cin >> incommand;
-            // cout << "MESSAGE RECEIVED!:" << incommand << endl;
-            stateflag = 1;
-            cin.clear();
-        }
-        */
-
         // If tracking not active, skip
         if (!stateflag)
         {
             // Add a 1ms sleep to slow down the loop if nothing else is being done
             nanosleep((const struct timespec[]){{0, 10000000L}}, NULL);
-            // If camera is started, stop and release it
-            /*
-            https://github.com/fnoop/vision_landing/issues/45
-            if (vreader.isOpened())
-                vreader.release();
-            */
             continue;
         }
 
-        // Start a Timer
+        // Start Timers
+        double framestart = CLOCK();
         ScopedTimerEvents Timer("detectloop");
 
-        // Copy image from input stream to cv matrix
-        vreader.grab();
-        Timer.add("GrabImage");
-        // Lodge clock for start of frame, after grabbing the frame but before decompressing/converting it.
-        // This is as close as we can get to the shutter time, to match to inertial frame.
-        double framestart = CLOCK();
-        vreader.retrieve(rawimage);
-        Timer.add("DecodeImage");
-        
+        // Read a camera frame from the incoming thread, with 1 second timeout
+        // std::cout << "debug:Incoming queue size:" << incomingQueue.Size() << std::endl;
+        pkQueueResults res = incomingQueue.Pop(iframe, 1000);
+        if (res != PK_QTS_OK)
+        {
+            if (verbose && res == PK_QTS_TIMEOUT)
+                std::cout << "debug:Time out reading from the camera thread" << std::endl;
+            if (verbose && res == PK_QTS_EMPTY)
+                std::cout << "debug:Camera thread is empty" << std::endl;
+            this_thread::yield();
+            continue;
+        }
+        Timer.add("PopImage");
+
         // Skip this loop iteration if the frame was empty
-        if (rawimage.empty())
+        if (iframe.mat.empty())
             continue;
 
         // Detect markers
-        std::vector<Marker> Markers = MDetector.detect(rawimage);
+        std::vector<Marker> Markers = MDetector.detect(iframe.mat);
         Timer.add("MarkerDetect");
 
         // Order the markers in ascending size - we want to start with the smallest.
@@ -482,10 +553,10 @@ int main(int argc, char **argv)
                     {
                         if (active_marker == thisId)
                             break; // Don't change to the same thing
-                        std::cout << "debug:changing active_marker:" << thisId << ":" << _histsum << ":" << _histthresh << ":" << std::endl;
                         changeActiveMarker(marker_history_queue, active_marker, thisId, marker_history);
                         if (verbose)
                         {
+                            std::cout << "debug:changing active_marker:" << thisId << ":" << _histsum << ":" << _histthresh << ":" << std::endl;
                             std::cout << "debug:marker history:";
                             for (auto &markerhist : marker_history_queue)
                             {
@@ -509,7 +580,8 @@ int main(int argc, char **argv)
                 float _histthresh = marker_history * ((float)marker_threshold / (float)100);
                 if (_histsum > _histthresh)
                 {
-                    std::cout << "debug:changing active_marker:" << thisId << std::endl;
+                    if (verbose)
+                        std::cout << "debug:changing active_marker:" << thisId << std::endl;
                     changeActiveMarker(marker_history_queue, active_marker, thisId, marker_history);
                     break;
                 }
@@ -532,7 +604,8 @@ int main(int argc, char **argv)
             else if (MarkerSize)
             {
                 _size = MarkerSize;
-                std::cout << "debug:defaulting to generic marker size: " << markerArea.second << std::endl;
+                if (verbose)
+                    std::cout << "debug:defaulting to generic marker size: " << markerArea.second << std::endl;
             }
             // Find the Marker in the Markers map and do pose estimation.  I'm sure there's a better way of iterating through the map..
             for (unsigned int i = 0; i < Markers.size(); i++)
@@ -554,7 +627,7 @@ int main(int argc, char **argv)
             {
                 if (output)
                 {
-                    Markers[i].draw(rawimage, Scalar(0, 255, 0), 2, false);
+                    Markers[i].draw(iframe.mat, Scalar(0, 255, 0), 2, false);
                 }
                 // If pose estimation was successful, calculate data and output to anyone listening.
                 if (Markers[i].Tvec.at<float>(0, 2) > 0)
@@ -568,16 +641,19 @@ int main(int argc, char **argv)
                     {
                         Ti = MParams.minSize;
                         ThresHold = MParams.ThresHold;
-                        std::cout << "debug:active_marker:" << active_marker << ":center~" << Markers[i].getCenter() << ":area~" << Markers[i].getArea() << ":marker~" << Markers[i] << ":vectornorm~" << distance << ":Ti~" << Ti << ":ThresHold~" << ThresHold << ":Markers~" << Markers.size() << ":processtime~" << processtime << std::endl;
+                        std::cout << "debug:active_marker:" << active_marker << ":center~" << Markers[i].getCenter() << ":area~" << Markers[i].getArea() << ":marker~" << Markers[i] << ":vectornorm~" << distance << ":Ti~" << Ti << ":ThresHold~" << ThresHold << ":Markers~" << Markers.size() << ":processtime~" << processtime << ":timestamp~" << iframe.vars.timeStamp << std::endl;
                     }
-                    std::cout << "target:" << Markers[i].id << ":" << xoffset << ":" << yoffset << ":" << distance << ":" << processtime << std::endl;
+                    // This is the main message that track_targets outputs, containing the active target data
+                    std::cout << "target:" << Markers[i].id << ":" << xoffset << ":" << yoffset << ":" << distance << ":" << processtime << ":" << iframe.vars.timeStamp << ":" << CLOCK() * 1e+6 << std::endl << std::flush;
+                    // std::cout << "target:" << Markers[i].id << ":" << xoffset << ":" << yoffset << ":" << distance << ":" << processtime << ":" << CLOCK() * 1e+6 << std::endl << std::flush;
+                    std::fflush(stdout); // explicitly flush stdout buffer
                     Timer.add("SendMessage");
                     // Draw AR cube and distance
                     if (output)
                     { // don't burn cpu cycles if no output
-                        drawARLandingCube(rawimage, Markers[i], CamParam);
-                        CvDrawingUtils::draw3dAxis(rawimage, Markers[i], CamParam);
-                        drawVectors(rawimage, Scalar(0, 255, 0), 1, (i + 1) * 20, Markers[i].id, xoffset, yoffset, distance, Markers[i].getCenter().x, Markers[i].getCenter().y);
+                        drawARLandingCube(iframe.mat, Markers[i], CamParam);
+                        CvDrawingUtils::draw3dAxis(iframe.mat, Markers[i], CamParam);
+                        drawVectors(iframe.mat, Scalar(0, 255, 0), 1, (i + 1) * 20, Markers[i].id, xoffset, yoffset, distance, Markers[i].getCenter().x, Markers[i].getCenter().y);
                         Timer.add("DrawGreenAR");
                     }
                 }
@@ -585,33 +661,38 @@ int main(int argc, char **argv)
             }
             else
             {
-                std::cout << "debug:inactive_marker:center~" << Markers[i].getCenter() << ":area~" << Markers[i].getArea() << ":marker~" << Markers[i] << ":Ti~" << Ti << ":ThresHold~" << ThresHold << ":Markers~" << Markers.size() << ":processtime~" << processtime << std::endl;
+                if (verbose)
+                    std::cout << "debug:inactive_marker:center~" << Markers[i].getCenter() << ":area~" << Markers[i].getArea() << ":marker~" << Markers[i] << ":Ti~" << Ti << ":ThresHold~" << ThresHold << ":Markers~" << Markers.size() << ":processtime~" << processtime << std::endl;
                 if (output)
                 { // don't burn cpu cycles if no output
-                    Markers[i].draw(rawimage, Scalar(0, 0, 255), 2, false);
-                    drawVectors(rawimage, Scalar(0, 0, 255), 1, (i + 1) * 20, Markers[i].id, 0, 0, Markers[i].Tvec.at<float>(0, 2), Markers[i].getCenter().x, Markers[i].getCenter().y);
+                    Markers[i].draw(iframe.mat, Scalar(0, 0, 255), 2, false);
+                    drawVectors(iframe.mat, Scalar(0, 0, 255), 1, (i + 1) * 20, Markers[i].id, 0, 0, Markers[i].Tvec.at<float>(0, 2), Markers[i].getCenter().x, Markers[i].getCenter().y);
                     Timer.add("DrawRedAR");
                 }
             }
         }
+        Timer.add("UseMarkers");
 
         if (output && args::get(output) != "window")
         {
-            writer << rawimage;
-            Timer.add("OutputImage");
+            oframe.mat = iframe.mat.clone();
+            // iframe.mat.copyTo(oframe.mat);
+            Timer.add("Out-CloneMat");
+            outgoingQueue.Push(oframe);
+            Timer.add("Out-PushImage");
         }
         else if (output && args::get(output) == "window")
         {
-            imshow("vision_landing", rawimage);
+            imshow("vision_landing", iframe.mat);
             Timer.add("OutputImage");
         }
 
         // Lodge clock for end of frame
         double framedur = CLOCK() - framestart;
 
-        // Print fps info every 100 frames if in debug mode
+        // Print fps info every 100 frames
         char framestr[100];
-        sprintf(framestr, "debug:avgframedur~%fms:fps~%f:frameno~%d:", avgdur(framedur), avgfps(), frameno++);
+        sprintf(framestr, "info:avgframedur~%fms:fps~%f:frameno~%d:", avgdur(framedur), avgfps(), frameno++);
         if (verbose && (frameno % 100 == 1))
         {
             std::cout << framestr << std::endl;
@@ -619,7 +700,16 @@ int main(int argc, char **argv)
         Timer.add("EndofLoop");
     }
 
+    // Stop incoming thread and flush queue
     std::cout << "info:track_targets complete, exiting" << std::endl;
+    grabState = false;
+    pushState = false;
+    while (PK_QTS_EMPTY != incomingQueue.Pop(iframe, 0));
+    inThread.join();
+    while (PK_QTS_EMPTY != outgoingQueue.Pop(oframe, 0));
+    outThread.join();
+    vreader.release();
+    vwriter.release();
     std::cout.flush();
     return 0;
 }

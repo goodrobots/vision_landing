@@ -10,10 +10,12 @@ ENDIF()
 
 add_executable(track_targets track_targets.cpp)
 
-set(cpp_compile_flags "-std=gnu++11")
+set(EXTRA_C_FLAGS_RELEASE "${EXTRA_C_FLAGS_RELEASE} -std=c++0x -pthread -march=armv8-a+crc -mfpu=neon-vfpv4 -mtune=cortex-a53 -ftree-vectorize -mfloat-abi=hard -O3 ")
+set(cpp_compile_flags "-std=gnu++11 -pthread")
 add_definitions(${cpp_compile_flags})
 
 include_directories(${aruco_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS})
-target_link_libraries(track_targets aruco ${aruco_LIBS} ${OpenCV_LIBS})
+target_link_libraries(track_targets aruco ${aruco_LIBS} ${OpenCV_LIBS} pthread)
 link_directories(${aruco_LIB_DIR} ${OpenCV_INSTALL_PATH}/lib})
+link_libraries(pthread)
 install(PROGRAMS track_targets DESTINATION ${CMAKE_CURRENT_SOURCE_DIR}/..)
