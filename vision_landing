@@ -458,6 +458,7 @@ parser.add_argument('--fourcc', '-u', help="Specify FourCC codec")
 parser.add_argument('--fakerangefinder', '-r', action='store_true', help="Fake RangeFinder Data")
 parser.add_argument('--logdir', '-l', help="Log directory, if not specified will log to stdout")
 parser.add_argument('--controlprocessing', '-p', action='store_true', help="Control Vision Processing - enable/disable based on arming status and landing/precloiter mode")
+parser.add_argument('--estimator', '-e', help="ACPrecLand estimator, 0=Raw, 1=EKF.  Defaults to 0 (Raw)")
 args = parser.parse_args()
 # First parse config file, and set defaults
 defaults = {}
@@ -622,9 +623,15 @@ craft.vehicle.parameters['PLND_ENABLED'] = 1
 craft.vehicle.parameters['PLND_TYPE'] = 1 # Mavlink landing backend
 # Set estimator type to 'raw', as ekf estimator can be very erratic
 try:
+    log.info("Trying plnd_est_type")
     if 'PLND_EST_TYPE' in craft.vehicle.parameters:
-        # TODO: Set a config parameter for estimator type
-        craft.vehicle.parameters['PLND_EST_TYPE'] = 0
+        log.info("Inside plnd_est_type")
+        try:
+            craft.vehicle.parameters['PLND_EST_TYPE'] = int(args.estimator)
+            log.info("plnd estimator: {}, {}".format(craft.vehicle.parameters['PLND_EST_TYPE'], args.estimator))
+        except Exception as e:
+            log.info("plnd estimator error: {}".format(repr(e)))
+            craft.vehicle.parameters['PLND_EST_TYPE'] = 0
 except:
     pass
 # Set the precland buffer to 250ms.  This should give enough buffer space for even very slow computers
