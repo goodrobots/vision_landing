@@ -281,21 +281,20 @@ class TrackTargets:
 
 # The Craft class connects to the flight controller and sends controlling messages
 class Craft:
-    def __init__(self, connectstr):
+    def __init__(self, connectstr, connectbaud):
         self.debug = False
         self.mode = None
         self.connected = None
         self.vehicle = None
-        self.connect(connectstr)
+        self.connect(connectstr, connectbaud)
         self.precloiter_opt = self.find_precloiter_opt()
         if self.precloiter_opt:
             log.info("Precision loiter switch found: Channel "+str(self.precloiter_opt))
-    def connect(self, connectstr):
+    def connect(self, connectstr, connectbaud):
         try:
-            # self.vehicle = connect(connectstr, wait_ready=True, rate=1)
             # self.vehicle = connect(connectstr, wait_ready=True)
-            # self.vehicle = connect(connectstr, wait_ready=['system_status','mode'], baud=921600)
-            self.vehicle = connect(connectstr, wait_ready=['system_status','mode'])
+            log.info("Connecting to vehicle: {} : {}".format(connectstr, connectbaud))
+            self.vehicle = connect(connectstr, baud=connectbaud, wait_ready=['system_status','mode'])
             self.connected = True
         except Exception,e:
             log.critical("Error connecting to vehicle:"+str(repr(e)))
@@ -439,6 +438,7 @@ import ConfigParser
 parser = argparse.ArgumentParser(description='Vision based precision landing')
 parser.add_argument('--config', '-c', default=cwd+"/vision_landing.conf", help="config file location, defaults to same directory as vision_landing")
 parser.add_argument('--connect', help="dronekit vehicle connection target string, eg. /dev/ttyS0, tcp:localhost:5770, udp:localhost:14560")
+parser.add_argument('--connectbaud', default=57600, help="dronekit connection baud if using serial, defaults to 57600")
 parser.add_argument('--markersize', help="Target marker size, in meters, required")
 parser.add_argument('--sizemapping', '-z', help="Marker Size Mappings, in marker_id:size format, comma separated")
 parser.add_argument('--markerhistory', help="Marker tracking history, in frames, defaults to 15")
@@ -458,7 +458,7 @@ parser.add_argument('--fourcc', '-u', help="Specify FourCC codec")
 parser.add_argument('--fakerangefinder', '-r', action='store_true', help="Fake RangeFinder Data")
 parser.add_argument('--logdir', '-l', help="Log directory, if not specified will log to stdout")
 parser.add_argument('--controlprocessing', '-p', action='store_true', help="Control Vision Processing - enable/disable based on arming status and landing/precloiter mode")
-parser.add_argument('--estimator', '-e', help="ACPrecLand estimator, 0=Raw, 1=EKF.  Defaults to 0 (Raw)")
+parser.add_argument('--estimator', '-e', default=0, help="ACPrecLand estimator, 0=Raw, 1=EKF.  Defaults to 0 (Raw)")
 args = parser.parse_args()
 # First parse config file, and set defaults
 defaults = {}
@@ -578,8 +578,7 @@ def monotonic_time():
 
 
 # Connect to the Vehicle
-log.info("Connecting to drone on: %s" % args.connect)
-craft = Craft(args.connect)
+craft = Craft(args.connect, args.connectbaud)
 if not craft.connected:
     log.critical("Error: Could not connect to drone")
     cleanup()
@@ -623,14 +622,12 @@ craft.vehicle.parameters['PLND_ENABLED'] = 1
 craft.vehicle.parameters['PLND_TYPE'] = 1 # Mavlink landing backend
 # Set estimator type to 'raw', as ekf estimator can be very erratic
 try:
-    log.info("Trying plnd_est_type")
     if 'PLND_EST_TYPE' in craft.vehicle.parameters:
-        log.info("Inside plnd_est_type")
         try:
             craft.vehicle.parameters['PLND_EST_TYPE'] = int(args.estimator)
-            log.info("plnd estimator: {}, {}".format(craft.vehicle.parameters['PLND_EST_TYPE'], args.estimator))
+            log.info("PrecLand Estimator: {}, {}".format(craft.vehicle.parameters['PLND_EST_TYPE'], args.estimator))
         except Exception as e:
-            log.info("plnd estimator error: {}".format(repr(e)))
+            log.info("Error setting PrecLand Estimator: {}".format(repr(e)))
             craft.vehicle.parameters['PLND_EST_TYPE'] = 0
 except:
     pass
