@@ -242,7 +242,10 @@ void outgoingThread()
             // If the queue already has more than 1 frame then pop it, to prevent buildup
             // We only want to send the latest frame
             while (qsize > 1)
+            {
                 outgoingQueue.Pop(oframe);
+                qsize--;
+            }
             // Pop the frame off the queue and push to stream
             outgoingQueue.Pop(oframe);
             vwriter.write(oframe.mat);
