@@ -123,13 +123,13 @@ void drawARLandingCube(cv::Mat &Image, Marker &m, const CameraParameters &CP)
     cv::projectPoints(objectPoints, m.Rvec, m.Tvec, CP.CameraMatrix, CP.Distorsion, imagePoints);
     // draw lines of different colours
     for (int i = 0; i < 4; i++)
-        cv::line(Image, imagePoints[i], imagePoints[(i + 1) % 4], Scalar(0, 255, 0, 255), 1, CV_AA);
+        cv::line(Image, imagePoints[i], imagePoints[(i + 1) % 4], Scalar(0, 255, 0, 255), 1, cv::LINE_AA);
 
     for (int i = 0; i < 4; i++)
-        cv::line(Image, imagePoints[i + 4], imagePoints[4 + (i + 1) % 4], Scalar(0, 255, 0, 255), 1, CV_AA);
+        cv::line(Image, imagePoints[i + 4], imagePoints[4 + (i + 1) % 4], Scalar(0, 255, 0, 255), 1, cv::LINE_AA);
 
     for (int i = 0; i < 4; i++)
-        cv::line(Image, imagePoints[i], imagePoints[i + 4], Scalar(0, 255, 0, 255), 1, CV_AA);
+        cv::line(Image, imagePoints[i], imagePoints[i + 4], Scalar(0, 255, 0, 255), 1, cv::LINE_AA);
 }
 
 // Print the calculated distance at bottom of image
@@ -345,9 +345,9 @@ int main(int argc, char **argv)
         vreader.set(CAP_PROP_BRIGHTNESS, args::get(brightness));
 
     // Set camera properties
-    vreader.set(CV_CAP_PROP_FRAME_WIDTH, inputwidth);
-    vreader.set(CV_CAP_PROP_FRAME_HEIGHT, inputheight);
-    vreader.set(CV_CAP_PROP_FPS, inputfps);
+    vreader.set(cv::CAP_PROP_FRAME_WIDTH, inputwidth);
+    vreader.set(cv::CAP_PROP_FRAME_HEIGHT, inputheight);
+    vreader.set(cv::CAP_PROP_FPS, inputfps);
     // vreader.set(CAP_PROP_BUFFERSIZE, 0); // Doesn't work yet with V4L2
 
     // Read and parse camera calibration data
@@ -381,7 +381,7 @@ int main(int argc, char **argv)
         if (fourcc)
         {
             std::string _fourcc = args::get(fourcc);
-            vwriter.open(args::get(output), CV_FOURCC(_fourcc[0], _fourcc[1], _fourcc[2], _fourcc[3]), inputfps, cv::Size(inputwidth, inputheight), true);
+            vwriter.open(args::get(output), VideoWriter::fourcc(_fourcc[0], _fourcc[1], _fourcc[2], _fourcc[3]), inputfps, cv::Size(inputwidth, inputheight), true);
         }
         else
         {
