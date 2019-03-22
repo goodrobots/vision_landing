@@ -28,14 +28,14 @@ If possible find packages for your OS for version 3.0 or above (or install from 
  - libopencv-calib3d-dev  
  - libopencv-highgui-dev  
  - libopencv-imgproc-dev
-Note that this was developed using OpenCV 3.2.  SolvePNP which is the underlying function for pose estimation that aruco uses is somewhat broken in 2.4 so aruco includes it's own routines, only using solvepnp in OpenCV >3.0.
+Note that this was developed using OpenCV 3.2, although current dev/testing is under 4.0.1.  SolvePNP which is the underlying function for pose estimation that aruco uses is somewhat broken in 2.4 so aruco includes it's own routines, only using solvepnp in OpenCV >3.0.
 
-**Aruco (>2.0)**
-It is recommended to install 2.0.20 from https://github.com/fnoop/aruco as it has some fixes that haven't been released yet.  
+**Aruco (>3.0.0)**
+It is recommended to install 3.1.0 from https://github.com/fnoop/aruco as it has some fixes that haven't been released yet.  
 Installation is straight forward:  
  ```
  git clone https://github.com/fnoop/aruco
- git checkout 2.0.20-git-fixed
+ git checkout 3.1.0
  cd aruco
  cmake . && make && sudo make install
  ```
