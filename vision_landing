@@ -199,7 +199,7 @@ class TrackTargets:
             self.track_arguments.extend(['-v'])
         # If brightness is set, pass it through
         if args.brightness:
-            self.track_arguments.extend(['-b', args.brightness])
+            self.track_arguments.extend(['-b', str(args.brightness)])
         # If fourcc codec is set, pass it through
         if args.fourcc:
             self.track_arguments.extend(['-c', args.fourcc])
@@ -623,14 +623,12 @@ craft.vehicle.parameters['PLND_ENABLED'] = 1
 craft.vehicle.parameters['PLND_TYPE'] = 1 # Mavlink landing backend
 # Set estimator type to 'raw', as ekf estimator can be very erratic
 try:
-    log.info("Trying plnd_est_type")
     if 'PLND_EST_TYPE' in craft.vehicle.parameters:
-        log.info("Inside plnd_est_type")
         try:
             craft.vehicle.parameters['PLND_EST_TYPE'] = int(args.estimator)
             log.info("plnd estimator: {}, {}".format(craft.vehicle.parameters['PLND_EST_TYPE'], args.estimator))
         except Exception as e:
-            log.info("plnd estimator error: {}".format(repr(e)))
+            log.info("plnd estimator error: {} - setting estimator to type 0".format(repr(e)))
             craft.vehicle.parameters['PLND_EST_TYPE'] = 0
 except:
     pass
