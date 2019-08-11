@@ -19,3 +19,5 @@ target_link_libraries(track_targets aruco ${aruco_LIBS} ${OpenCV_LIBS} pthread)
 link_directories(${aruco_LIB_DIR} ${OpenCV_INSTALL_PATH}/lib})
 link_libraries(pthread)
 install(PROGRAMS track_targets DESTINATION ${CMAKE_CURRENT_SOURCE_DIR}/..)
+
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -latomic")
