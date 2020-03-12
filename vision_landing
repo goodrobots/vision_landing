@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # -*- coding: utf-8 -*-
 
 # vision_landing
@@ -24,6 +24,51 @@ from math import sqrt
 import signal
 import logging
 import ctypes
+
+
+### ================================
+### Define Functions
+### ================================
+
+# Return correctly typed config parser option
+def get_config_value(parser, section, option):
+    """Parses config value as python type"""
+    try:
+        return parser.getint(section, option)
+    except ValueError:
+        pass
+    try:
+        return parser.getfloat(section, option)
+    except ValueError:
+        pass
+    try:
+        return parser.getboolean(section, option)
+    except ValueError:
+        pass
+    return parser.get(section, option)
+
+# Setup monotonic clock
+CLOCK_MONOTONIC_RAW = 4
+class timespec(ctypes.Structure):
+    _fields_ = [
+        ('tv_sec', ctypes.c_long),
+        ('tv_nsec', ctypes.c_long)
+    ]
+librt = ctypes.CDLL('librt.so.1', use_errno=True)
+clock_gettime = librt.clock_gettime
+clock_gettime.argtypes = [ctypes.c_int, ctypes.POINTER(timespec)]
+
+def monotonic_time():
+    t = timespec()
+    if clock_gettime(CLOCK_MONOTONIC_RAW , ctypes.pointer(t)) != 0:
+        errno_ = ctypes.get_errno()
+        raise OSError(errno_, os.strerror(errno_))
+    return (t.tv_sec * 1e+9) + t.tv_nsec
+
+### ================================
+### End Define Functions
+### ================================
+
 
 ### ================================
 ### Define Classes
@@ -397,30 +442,6 @@ class SigTrack:
 ### End Define Classes
 ### ================================
 
-### ================================
-### Define Functions
-### ================================
-
-# Return correctly typed config parser option
-def get_config_value(parser, section, option):
-    """Parses config value as python type"""
-    try:
-        return parser.getint(section, option)
-    except ValueError:
-        pass
-    try:
-        return parser.getfloat(section, option)
-    except ValueError:
-        pass
-    try:
-        return parser.getboolean(section, option)
-    except ValueError:
-        pass
-    return parser.get(section, option)
-
-### ================================
-### End Define Functions
-### ================================
 
 ### --------------------------------
 ### Parse arguments, setup logging
@@ -532,7 +553,7 @@ except Exception as error:
     exit(1)
 track_targets.process.poll()
 if track_targets.process.returncode != None:
-    log.critical("Error starting track_targets")
+    log.critical("Error starting track_targets: ".format(track_targets.process.returncode))
     exit(1)
 
 # Define a function that stops and clears up cv process
@@ -557,25 +578,6 @@ def cleanup():
 sigtracker = SigTrack()
 signal.signal(signal.SIGINT, sigtracker.handle_sig)
 signal.signal(signal.SIGTERM, sigtracker.handle_sig)
-
-# Setup monotonic clock
-CLOCK_MONOTONIC_RAW = 4
-class timespec(ctypes.Structure):
-    _fields_ = [
-        ('tv_sec', ctypes.c_long),
-        ('tv_nsec', ctypes.c_long)
-    ]
-librt = ctypes.CDLL('librt.so.1', use_errno=True)
-clock_gettime = librt.clock_gettime
-clock_gettime.argtypes = [ctypes.c_int, ctypes.POINTER(timespec)]
-
-def monotonic_time():
-    t = timespec()
-    if clock_gettime(CLOCK_MONOTONIC_RAW , ctypes.pointer(t)) != 0:
-        errno_ = ctypes.get_errno()
-        raise OSError(errno_, os.strerror(errno_))
-    return (t.tv_sec * 1e+9) + t.tv_nsec
-
 
 # Connect to the Vehicle
 log.info("Connecting to drone on: %s" % args.connect)
