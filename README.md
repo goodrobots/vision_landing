@@ -1,9 +1,19 @@
-# vision_landing
+# Vision Landing 2
 
-_**WARNING: This project is currently discontinued and is of academic interest only. ArduPilot and PX4 autopilots do not yet safely support vision based precision landing.  PLEASE DO NOT USE THIS CODE other than for experimental or learning purposes.  IT WILL behave dangerously.  You have been warned.**_
+_**WARNING: Use at your own risk **_
 
 ### Precision landing using visual targets.  
-This is a project to achieve precision landing on drones using ArduCopter firmware, using (monocular) vision alone.  Fiducial markers are printed and used as landing targets, and these targets provide orientation, location and distance information when combined with accurate size information of the markers and calibrated camera information.  No rangefinder is necessary, as the distance to target is obtained automatically through pose estimation of the markers.  
+
+This is a project to achieve precision landing on drones, using (monocular) vision alone. Fiducial markers are printed and used as landing targets, and these targets provide orientation, location and distance information when combined with accurate size information of the markers and calibrated camera information.  No rangefinder is necessary, as the distance to target is obtained automatically through pose estimation of the markers.  
+
+This is a improved version of https://github.com/goodrobots/vision_landing with the following additional features:
+
+* Uses AprilTags
+* Allows to define a Landing Point relative to multiple markers. This solves the problem of bouncing between detected marker centers.
+* Includes an OpenGL simulator for streaming a generated landing scene with markers
+* Does the pose estimation using the biggest marker which offers a better pose estimation (more pixels to detect).
+
+The rest of this document is a copy of the original project Vision Landing which only supported Aurco markers.
 
 Demonstrations
 --------------------
