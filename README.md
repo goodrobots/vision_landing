@@ -12,8 +12,9 @@ This is a improved version of https://github.com/goodrobots/vision_landing with 
 * Allows to define a Landing Point relative to multiple markers (not limited to marker centers). This also solves the problem of bouncing between detected markers.
 * Does the pose estimation using the biggest marker which offers a better pose estimation (more pixels to detect).
 * Supports a JSON configuration file (TODO: this should replace the old vision_landing.conf).
-* Implements an alternative input source using a named pipe to obtain raw frames with less latency, CPU ussage and better quality.
+* Implements an alternative input source using a named pipe to obtain raw frames with less latency, less CPU ussage and better quality.
 * Bug fixes and minor improvements.
+* Merges the ideas and code of this alternative implementation. See: https://github.com/chobitsfan/apriltag_plnd/issues/1
 
 For testing, you can use this camera simulator to generate and stream a scene with markers from the viewpoint of a drone controlled via MAVLink:
 https://github.com/kripper/mavlink-camera-simulator/
