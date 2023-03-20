@@ -10,10 +10,11 @@ This is a improved version of https://github.com/goodrobots/vision_landing with 
 
 * Uses AprilTags.
 * Allows to define a Landing Point relative to multiple markers (not limited to marker centers). This also solves the problem of bouncing between detected markers.
-* Includes an camera simulator for generating and streaming a landing scene with markers (for testing).
+* Includes a camera simulator for generating and streaming a landing scene with markers (for testing).
 * Does the pose estimation using the biggest marker which offers a better pose estimation (more pixels to detect).
-* Supports a JSON configuration file (TODO: should replace the old vision_landing.conf in the future).
-* Bug fixes
+* Supports a JSON configuration file (TODO: this should replace the old vision_landing.conf).
+* Implements an alternative input source using a named pipe to obtain raw frames with less latency, CPU ussage and better quality.
+* Bug fixes and minor improvements.
 
 The rest of this document is a copy of the original project Vision Landing which only supported Aruco markers.
 
