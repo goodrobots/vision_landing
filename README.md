@@ -19,6 +19,10 @@ This is a improved version of https://github.com/goodrobots/vision_landing with 
 For testing, you can use this camera simulator to generate and stream a scene with markers from the viewpoint of a drone controlled via MAVLink:
 https://github.com/kripper/mavlink-camera-simulator/
 
+Screenshot of 3 markers of different sizes. The biggest visible marker is used to estimate the pose of the relative landing point (red cross).
+
+![image](https://user-images.githubusercontent.com/1479804/226492709-68e153fe-f34d-4182-aac5-12cd4f482599.png)
+
 ---
 
 The rest of this document is a copy of the original Vision Landing project which only supported Aruco markers.
