@@ -35,6 +35,18 @@ The smallest marker should have the offset `(0,0)` to point to its center.
 
 ![image](https://user-images.githubusercontent.com/1479804/228932515-d2f5df8b-ed29-492a-b984-4cb42f768e69.png)
 
+### Running track_targets directly
+
+Before running `vision_landing`, it is recommended to try running `track_targets` directly.
+
+This is the sintax:
+
+`./track_targets [option...] --width <width> --height <height> --fps <fps> -o <output> <input> <camera-calibration-file.yml>`
+
+Example command line:
+
+`./track_targets --get-offsets=85 --width 1280 --height 720 --fps 15 -o 'appsrc ! videoconvert ! videorate ! openh264enc bitrate=1000000 ! rtph264pay ! udpsink host=laptop port=5000' 'udpsrc port=5000 ! application/x-rtp, encoding-name=H264, payload=96 ! rtph264depay ! avdec_h264 ! capsfilter caps="video/x-raw, format=(string)I420, width=(int)1280, height=(int)720, interlace-mode=(string)progressive, pixel-aspect-ratio=(fraction)1/1, chroma-site=(string)mpeg2, framerate=(fraction)25/1" ! videoconvert ! appsink' calibration/dji-mini-se-1280x720.yml`
+
 ---
 
 The rest of this document is a copy of the original Vision Landing project which only supported Aruco markers.
