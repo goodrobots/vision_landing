@@ -10,13 +10,47 @@ This is a improved version of https://github.com/goodrobots/vision_landing with 
 
 * Uses AprilTags.
 * Allows to define a Landing Point relative to multiple markers (not limited to marker centers). This also solves the problem of bouncing between detected markers.
-* Includes a camera simulator for generating and streaming a landing scene with markers (for testing).
 * Does the pose estimation using the biggest marker which offers a better pose estimation (more pixels to detect).
 * Supports a JSON configuration file (TODO: this should replace the old vision_landing.conf).
-* Implements an alternative input source using a named pipe to obtain raw frames with less latency, CPU ussage and better quality.
+* Implements an alternative input source using a named pipe to obtain raw frames with less latency, less CPU ussage and better quality.
 * Bug fixes and minor improvements.
+* Merges the ideas and code of this alternative implementation. See: https://github.com/chobitsfan/apriltag_plnd/issues/1
 
-The rest of this document is a copy of the original project Vision Landing which only supported Aruco markers.
+For testing, you can use this camera simulator to generate and stream a scene with markers from the viewpoint of a drone controlled via MAVLink:
+https://github.com/kripper/mavlink-camera-simulator/
+
+Screenshot of 3 markers of different sizes. The biggest visible marker is used to estimate the pose of the relative landing point (red cross).
+
+![image](https://user-images.githubusercontent.com/1479804/226492709-68e153fe-f34d-4182-aac5-12cd4f482599.png)
+
+### Marker Offsets
+
+The best strategy is to set the landing point on the center of the smallest marker and have all other bigger markers referencing this landing point using offsets.
+This way the drone will be able to see at least the smallest marker until landing on the ground.
+
+The offsets (`offsetX` and `offsetY`) must be configured in the `config.json` file.
+
+To automatically compute the offsets, you can pass the `--get-offsets` argument to the `track_targets` binary.
+The smallest marker should have the offset `(0,0)` to point to its center.
+
+![image](https://user-images.githubusercontent.com/1479804/228932515-d2f5df8b-ed29-492a-b984-4cb42f768e69.png)
+
+### Running track_targets directly
+
+Before running `vision_landing`, it is recommended to try running `track_targets` directly.
+
+This is the sintax:
+
+`./track_targets [option...] --width <width> --height <height> --fps <fps> -o <output> <input> <camera-calibration-file.yml>`
+
+Example command line:
+
+`./track_targets --get-offsets=85 --width 1280 --height 720 --fps 15 -o 'appsrc ! videoconvert ! videorate ! openh264enc bitrate=1000000 ! rtph264pay ! udpsink host=laptop port=5000' 'udpsrc port=5000 ! application/x-rtp, encoding-name=H264, payload=96 ! rtph264depay ! avdec_h264 ! capsfilter caps="video/x-raw, format=(string)I420, width=(int)1280, height=(int)720, interlace-mode=(string)progressive, pixel-aspect-ratio=(fraction)1/1, chroma-site=(string)mpeg2, framerate=(fraction)25/1" ! videoconvert ! appsink' calibration/dji-mini-se-1280x720.yml`
+
+---
+
+The rest of this document is a copy of the original Vision Landing project which only supported Aruco markers.
+You can calibrate the camera using Aruco markers as explained below and then use AprilTag markers for the landing.
 
 Demonstrations
 --------------------
