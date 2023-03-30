@@ -23,6 +23,18 @@ Screenshot of 3 markers of different sizes. The biggest visible marker is used t
 
 ![image](https://user-images.githubusercontent.com/1479804/226492709-68e153fe-f34d-4182-aac5-12cd4f482599.png)
 
+### Marker Offsets
+
+The best strategy is to set the landing point on the center of the smallest marker and have all other bigger markers referencing this landing point using offsets.
+This way the drone will be able to see at least the smallest marker until landing on the ground.
+
+The offsets (`offsetX` and `offsetY`) must be configured in the `config.json` file.
+
+To automatically compute the offsets, you can pass the `--get-offsets` argument to the `track_targets` binary.
+The smallest marker should have the offset `(0,0)` to point to its center.
+
+![image](https://user-images.githubusercontent.com/1479804/228932515-d2f5df8b-ed29-492a-b984-4cb42f768e69.png)
+
 ---
 
 The rest of this document is a copy of the original Vision Landing project which only supported Aruco markers.
