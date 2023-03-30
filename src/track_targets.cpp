@@ -382,6 +382,7 @@ int main(int argc, char **argv)
     args::HelpFlag help(parser, "help", "Display this help menu", {'h', "help"});
     args::Flag verbose(parser, "verbose", "Verbose", {'v', "verbose"});
     args::Flag testFlag(parser, "test", "Start detecting markers immediately", {'t', "test"});
+    args::ValueFlag<int> getOffsets(parser, "markerid", "Compute marker offsets to the smalles marker center", {"get-offsets"});
     args::ValueFlag<int> markerid(parser, "markerid", "Marker ID", {'i', "id"});
     args::ValueFlag<std::string> dict(parser, "dict", "Marker Dictionary", {'d', "dict"});
     args::ValueFlag<std::string> output(parser, "output", "Output Stream", {'o', "output"});
@@ -420,7 +421,7 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    if (!input || !calibration || !markersize)
+    if (!input || !calibration)
     {
         cout << parser;
         return 1;
@@ -443,18 +444,6 @@ int main(int argc, char **argv)
             std::cerr << "Error: Input stream can't be opened" << std::endl;
             return 1;
         }
-    }
-
-    if(testFlag) {
-        stateflag = true;
-        test = true;
-
-    } else {
-        // Register signals
-        signal(SIGINT, handle_sig);
-        signal(SIGTERM, handle_sig);
-        signal(SIGUSR1, handle_sigusr1);
-        signal(SIGUSR2, handle_sigusr2);
     }
 
     // If resolution is specified then use, otherwise use default
@@ -515,6 +504,14 @@ int main(int argc, char **argv)
     if(useApriltag) {
         // Use existing aruco camera calibration parameters for the apriltag detector
         apriltag_init(CamParam);
+
+        if(getOffsets) {
+            extern int COMPUTE_OFFSETS;
+            COMPUTE_OFFSETS = args::get(getOffsets);
+            cout << "Computing offsets of marker #" << COMPUTE_OFFSETS << "...\n";
+
+            test = true;
+        }
     }
 
     // Calculate the fov from the calibration intrinsics
@@ -641,6 +638,19 @@ int main(int argc, char **argv)
     cout << "info:initcomp:Initialisation Complete" << std::endl;
 
     cout << "\n";
+
+    // Register signals just right before the main loop. Otherwise SIGINT won't work if video init hangs.
+
+    signal(SIGINT, handle_sig);
+    if(testFlag || test) {
+        stateflag = true;
+        test = true;
+
+    } else {
+        signal(SIGTERM, handle_sig);
+        signal(SIGUSR1, handle_sigusr1);
+        signal(SIGUSR2, handle_sigusr2);
+    }
 
     // Main loop
     while (true)

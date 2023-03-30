@@ -14,7 +14,7 @@
 //#include <apriltag/tag36h11.h>
 
 const bool DEBUG = false; // Slower, but processes all markers and provides more info
-const bool COMPUTE_OFFSETS = false; // Keep disabled. May crash with SIGSEV when unable to compute
+int COMPUTE_OFFSETS = false; // Keep disabled. May crash with SIGSEV when unable to compute
 
 using std::cout;
 using cv::Mat;
@@ -161,10 +161,12 @@ bool apriltag_process_image(Mat img, aruco::CameraParameters& CP, LandingTarget&
 		// TODO: Add: << markerLP->data[0] << ", " << markerLP->data[1] << ", " << markerLP->data[2] << "), " << pose.R->data[3] << ", " << pose.R->data[0] << "\n";
 		// cout << "LP: (" << tgt_offset->data[0] << ", " << tgt_offset->data[1] << ")\n";
 		if(test) {
-			cout << "LP: (" << out.x << ", " << out.y << ", " << out.z << "), angle: " << out.angle << ", offset: (" << tgt_offset->data[0] << ", " << tgt_offset->data[1] << ")\n";
+			if(!COMPUTE_OFFSETS || landingPoint) {
+				cout << "LP: (" << out.x << ", " << out.y << ", " << out.z << "), angle: " << out.angle << ", offset: (" << tgt_offset->data[0] << ", " << tgt_offset->data[1] << ")\n";
+			}
 		}
 
-		if(0) {
+		if(1) {
 			// Render marker corners
 			cv::line(img, cv::Point(det->p[0][0], det->p[0][1]), cv::Point(det->p[1][0], det->p[1][1]), Scalar(0, 0, 255), 2);
 			cv::line(img, cv::Point(det->p[1][0], det->p[1][1]), cv::Point(det->p[2][0], det->p[2][1]), Scalar(0, 0, 255), 2);
@@ -179,8 +181,10 @@ bool apriltag_process_image(Mat img, aruco::CameraParameters& CP, LandingTarget&
 			drawARLandingCube(img, m, CP);
 		}
 
-		if(DEBUG) {
+		if(COMPUTE_OFFSETS) {
 			if(landingPoint) {
+				if(det->id == COMPUTE_OFFSETS) continue;
+
 				if(1) {
 					// Show error to previous computed landing point
 					double ex = pow(markerLP->data[0] - landingPoint->data[0], 2);
@@ -202,15 +206,19 @@ bool apriltag_process_image(Mat img, aruco::CameraParameters& CP, LandingTarget&
 					matd_t* _diff = matd_subtract(landingPoint, pose.t);
 					matd_t* _offset = matd_multiply(_invR, _diff);
 
-					cout << "\tComputed offset: (" << _offset->data[0] << "," << _offset->data[1] << ")\n";
+					cout << "\tComputed offsets:\n\t\t\"offsetX\": " << _offset->data[0] << ",\n\t\t\"offsetY\": " << _offset->data[1] << "\n";
 
 					matd_destroy(_invR);
 					matd_destroy(_diff);
 					matd_destroy(_offset);
 				}
 
-			} else {
+			} else if(COMPUTE_OFFSETS && det->id == COMPUTE_OFFSETS) {
 				landingPoint = markerLP;
+
+				// Repeat
+				i = -1;
+				continue;
 			}
 		}
 
@@ -281,7 +289,7 @@ bool apriltag_process_image(Mat img, aruco::CameraParameters& CP, LandingTarget&
 		matd_destroy(pose.t);
 		matd_destroy(pose.R);
 
-		if(!DEBUG) break; // Just use first detected marker
+		if(!DEBUG && !COMPUTE_OFFSETS) break; // Just use first detected marker
     }
  
 #if SPEED_TEST
