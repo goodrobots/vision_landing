@@ -154,7 +154,7 @@ There are two main components:
 
 track_targets must be compiled and installed into the main directory before vision_landing can be run.  vision_landing calls track_targets to do the actual target detection and vector calculations.
  ```
- git clone https://github.com/goodrobots/vision_landing
+ git clone https://github.com/RosettaDrone/vision-landing-2.git
  cd vision_landing/src
  cmake . && make && make install
  ```
