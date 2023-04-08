@@ -12,10 +12,10 @@ This is a improved version of https://github.com/goodrobots/vision_landing with 
 * Allows to define a Landing Point relative to multiple markers (not limited to marker centers). This also solves the problem of bouncing between detected markers.
 * Does the pose estimation using the biggest marker which offers a better pose estimation (more pixels to detect). Once out of the visual field, the next biggest detected marker will be used.
 * Supports a JSON configuration file (TODO: this should replace the old vision_landing.conf).
-* Implements an alternative input source using tcp sockets to obtain raw frames with less latency, less CPU ussage and better quality (used together with [RosettaDrone](https://github.com/RosettaDrone/rosettadrone)).
-* Bug fixes and minor improvements.
+* Implements an alternative input source using tcp sockets to obtain raw frames with less latency, less CPU ussage and better quality (used together with [RosettaDrone](https://github.com/RosettaDrone/rosettadrone)). The drone's yaw and an image timestamp is also sent together with the images.
+* Many bug fixes and improvements.
 * Merges the ideas and code of this alternative implementation. See: https://github.com/chobitsfan/apriltag_plnd/issues/1
-* Integrates the [SmartLanding](https://github.com/RosettaDrone/SmartLanding) flight controller to actually land the drone using the [SET_POSITION_TARGET_LOCAL_NED](https://mavlink.io/en/messages/common.html#SET_POSITION_TARGET_LOCAL_NED) and [MAV_CMD_NAV_LAND](https://mavlink.io/en/messages/common.html#MAV_CMD_NAV_LAND) MAVLink commands. Alternatively, you may also just send the [LANDING_TARGET](https://mavlink.io/en/messages/common.html#LANDING_TARGET) command and let the drone's flight controller perform the landing.
+* Integrates the [SmartLanding](https://github.com/RosettaDrone/SmartLanding) algorithm framework and implements a flight controller to actually land the drone using the [SET_POSITION_TARGET_LOCAL_NED](https://mavlink.io/en/messages/common.html#SET_POSITION_TARGET_LOCAL_NED) and [MAV_CMD_NAV_LAND](https://mavlink.io/en/messages/common.html#MAV_CMD_NAV_LAND) MAVLink commands. Alternatively, you may also just send the [LANDING_TARGET](https://mavlink.io/en/messages/common.html#LANDING_TARGET) command and let the drone's flight controller perform the landing.
 
 For testing, you can use this camera simulator to generate and stream a scene with markers from the viewpoint of a drone controlled via MAVLink:
 https://github.com/kripper/mavlink-camera-simulator/
@@ -154,7 +154,7 @@ There are two main components:
 
 track_targets must be compiled and installed into the main directory before vision_landing can be run.  vision_landing calls track_targets to do the actual target detection and vector calculations.
  ```
- git clone https://github.com/goodrobots/vision_landing
+ git clone https://github.com/RosettaDrone/vision-landing-2.git
  cd vision_landing/src
  cmake . && make && make install
  ```
