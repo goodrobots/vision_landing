@@ -10,11 +10,12 @@ This is a improved version of https://github.com/goodrobots/vision_landing with 
 
 * Uses AprilTags.
 * Allows to define a Landing Point relative to multiple markers (not limited to marker centers). This also solves the problem of bouncing between detected markers.
-* Does the pose estimation using the biggest marker which offers a better pose estimation (more pixels to detect).
+* Does the pose estimation using the biggest marker which offers a better pose estimation (more pixels to detect). Once out of the visual field, the next biggest detected marker will be used.
 * Supports a JSON configuration file (TODO: this should replace the old vision_landing.conf).
-* Implements an alternative input source using a named pipe to obtain raw frames with less latency, less CPU ussage and better quality.
+* Implements an alternative input source using tcp sockets to obtain raw frames with less latency, less CPU ussage and better quality (used together with [RosettaDrone](https://github.com/RosettaDrone/rosettadrone)).
 * Bug fixes and minor improvements.
 * Merges the ideas and code of this alternative implementation. See: https://github.com/chobitsfan/apriltag_plnd/issues/1
+* Integrates the [SmartLanding](https://github.com/RosettaDrone/SmartLanding) flight controller to actually land the drone using the [SET_POSITION_TARGET_LOCAL_NED](https://mavlink.io/en/messages/common.html#SET_POSITION_TARGET_LOCAL_NED) and [MAV_CMD_NAV_LAND](https://mavlink.io/en/messages/common.html#MAV_CMD_NAV_LAND) MAVLink commands. Alternatively, you may also just send the [LANDING_TARGET](https://mavlink.io/en/messages/common.html#LANDING_TARGET) command and let the drone's flight controller perform the landing.
 
 For testing, you can use this camera simulator to generate and stream a scene with markers from the viewpoint of a drone controlled via MAVLink:
 https://github.com/kripper/mavlink-camera-simulator/
@@ -46,6 +47,12 @@ This is the sintax:
 Example command line:
 
 `./track_targets --get-offsets=85 --width 1280 --height 720 --fps 15 -o 'appsrc ! videoconvert ! videorate ! openh264enc bitrate=1000000 ! rtph264pay ! udpsink host=laptop port=5000' 'udpsrc port=5000 ! application/x-rtp, encoding-name=H264, payload=96 ! rtph264depay ! avdec_h264 ! capsfilter caps="video/x-raw, format=(string)I420, width=(int)1280, height=(int)720, interlace-mode=(string)progressive, pixel-aspect-ratio=(fraction)1/1, chroma-site=(string)mpeg2, framerate=(fraction)25/1" ! videoconvert ! appsink' calibration/dji-mini-se-1280x720.yml`
+
+### Video
+
+Here is a video of my first basic test landing a DJI Mini SE with Vision Landing 2 and [RosettaDrone](https://github.com/RosettaDrone/rosettadrone):
+
+[![First basic test](https://img.youtube.com/vi/tOXuLmG5JBc/0.jpg)](https://www.youtube.com/watch?v=tOXuLmG5JBc)
 
 ---
 
