@@ -8,7 +8,7 @@ iF(USE_TIMERS)
 add_definitions(-DUSE_TIMERS)
 ENDIF()
 
-add_executable(track_targets track_targets.cpp apriltag/apriltag-detector.cpp)
+add_executable(track_targets track_targets.cpp apriltag.cpp raw-tcp-video.cpp)
 
 set(EXTRA_C_FLAGS_RELEASE "${EXTRA_C_FLAGS_RELEASE} -std=c++0x -pthread -march=armv8-a+crc -mfpu=neon-vfpv4 -mtune=cortex-a53 -ftree-vectorize -mfloat-abi=hard -O3 ")
 set(cpp_compile_flags "-std=gnu++11 -pthread")

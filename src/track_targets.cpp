@@ -39,7 +39,8 @@ Run separately with: ./track_targets -d TAG36h11 /dev/video0 calibration.yml 0.2
 #include "aruco/aruco.h"
 #include "aruco/timers.h"
 
-#include "apriltag/apriltag-detector.h"
+#include "apriltag.h"
+#include "raw-tcp-video.h"
 
 using namespace cv;
 using namespace aruco;
@@ -61,18 +62,21 @@ static volatile sig_atomic_t stateflag = 0; // 0 = stopped, 1 = started
 const bool useApriltag = true;
 bool test = false;
 const bool isCamera = false; // Disable when input is not a camera. Otherwise the program will hang.
-bool usePipeBuffer = false;
+bool useVideoSocket = false;
 #include <fstream>
 
 int inputwidth = 640;
 int inputheight = 480;
 int frameSize;
 
+std::thread inThread;
+
 // Setup sig handling
 void handle_sig(int sig)
 {
     cout << "info:SIGNAL:" << sig << ":Received" << std::endl;
     sigflag = 1;
+    pthread_kill(inThread.native_handle(), SIGUSR1); // Interrupt recv() and accept()
 }
 void handle_sigusr1(int sig)
 {
@@ -83,6 +87,9 @@ void handle_sigusr2(int sig)
 {
     cout << "info:SIGNAL:SIGUSR2:Received:" << sig << ":Switching off Vision Processing" << std::endl;
     stateflag = 0;
+
+    // TODO: Necessary?
+    pthread_kill(inThread.native_handle(), SIGUSR1); // Interrupt recv() and accept()
 }
 
 // Setup fps tracker
@@ -93,79 +100,12 @@ double CLOCK()
     return (t.tv_sec * 1000) + (t.tv_nsec * 1e-6);
 }
 
-// ---  Pipe buffer ---
-
-// This is an alternative image grabber that uses a named pipe.
-// To enable, use input arg = "pipe-buffer"
-
-const char pipeName[] = "/var/tmp/ix-frame";
-ifstream fs;
-
-void init_pipe_buffer() {
-    cout << "Waiting for pipe buffer sender...\n";
-    fs.open(pipeName, std::ios::in | std::ios::binary);
-    cout << "Connected\n";
-    if (!fs.is_open()) {
-        std::cerr << "Failed to open pipe '" << pipeName << "'" << std::endl;
-        exit(-1);
-    }
+void check_exit() {
+    if(sigflag == 1) exit(0);
 }
 
-int img = 0;
-double lastTime;
-
-// If we don't read all the data from the named pipe, ffmpeg will block instead of writing new frames.
-// TODO: OPT: Test working directly with yuvMat
-Mat pipe_buffer_get_image() {
-    img++;
-    cout << ": Getting image #" << img << "...";
-    std::streamsize bytes;
-    for(;;) {
-        int w, h, size;
-
-        fs.read(reinterpret_cast<char*>(&w), sizeof(w));
-        fs.read(reinterpret_cast<char*>(&h), sizeof(h));
-        fs.read(reinterpret_cast<char*>(&size), sizeof(size));
-
-        // cout << "w: " << w << ", h: " << h << ", size: " << size << "\n";
-
-        // Mat image(h, w, CV_8UC3);
-        // fs.read(reinterpret_cast<char*>(image.data), size);
-
-        char buffer[size];
-        fs.read(reinterpret_cast<char*>(buffer), size);
-        Mat yuvMat(h + h / 2, w, CV_8UC1, buffer);
-
-        Mat rgbMat;
-        //cvtColor(yuvMat, rgbMat, COLOR_YUV2BGR_I420);
-        cvtColor(yuvMat, rgbMat, COLOR_YUV420p2BGR);
-
-        double now = CLOCK();
-
-        if(lastTime) cout << " ms: " << (now - lastTime) << ", ";
-        lastTime = now;
-
-        bytes = fs.gcount();
-        cout << "bytes: " << bytes << "\n";
-
-        if(bytes) return rgbMat;
-
-        // Got 0 bytes => check input stream
-        if(fs.fail()) {
-            cout << "\nReconnecting...";
-            fs.close();
-            fs.open(pipeName, std::ios::in | std::ios::binary);
-            if (fs.is_open()) {
-                cout << "OK";
-                continue;
-            }
-        }
-
-        sleep(1);
-        if(sigflag == 1) exit(0);
-        cout << "Retrying...\n";
-    }
-}
+extern int server_socket, client_socket;
+extern struct sockaddr_in server_address, client_address;
 
 double _avgdur = 0;
 double _fpsstart = 0;
@@ -285,6 +225,7 @@ struct TimeCapsuleVars
 {
     uint64_t timeStamp = 0;
     uint64_t frameNum = 0;
+    float yaw = 0;
 };
 typedef MatCapsule_<TimeCapsuleVars> MatTimeCapsule;
 pkQueueTS<MatTimeCapsule> incomingQueue;
@@ -296,6 +237,9 @@ cv::VideoCapture vreader;
 // Thread to control capture device and push frames onto the threadsafe queue
 void incomingThread()
 {
+    signal(SIGINT, handle_sig); // Required for interupting raw_tcp_get_image > accept()
+    signal(SIGUSR1, handle_sigusr1); // Required for interupting raw_tcp_get_image > recv()
+
     // Enable capture input
     grabState = true;
     // Incoming frame
@@ -307,20 +251,22 @@ void incomingThread()
     {
         // Read the next frame in from the camera and push it to back of queue
         // cout << "debug:Pushing camera frame to queue" << std::endl;
-        if(!usePipeBuffer) {
+        if(!useVideoSocket) {
             vreader.grab();
         }
         // Lodge clock for start of frame, after grabbing the frame but before decompressing/converting it.
         // This is as close as we can get to the shutter time, for a better match to inertial frame.
         frameNum++;
         iframe.vars.frameNum = frameNum;
-        iframe.vars.timeStamp = CLOCK() * 1e+6;
+        
         // Now process the grabbed frame
 
-        if(usePipeBuffer) {
-            iframe.mat = pipe_buffer_get_image();
+        if(useVideoSocket) {
+            iframe.mat = raw_tcp_get_image(iframe.vars.timeStamp, iframe.vars.yaw);
         } else {
+            iframe.vars.yaw = 1000; // Means: no yaw in image => use MAVLink provided yaw
             vreader.retrieve(iframe.mat);
+            iframe.vars.timeStamp = CLOCK() * 1e+6;
         }
         // Push the timeframe capsule onto the queue, ready for collection and processing
         incomingQueue.Push(iframe);
@@ -427,12 +373,12 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    if(input.Get().compare("pipe-buffer") == 0) {
-        usePipeBuffer = true;
+    if(input.Get().compare("raw-tcp") == 0) {
+        useVideoSocket = true;
     }
 
-    if(usePipeBuffer) {
-        init_pipe_buffer();
+    if(useVideoSocket) {
+        init_video_socket();
 
     } else {
         // Open camera
@@ -459,7 +405,7 @@ int main(int argc, char **argv)
     if (fps)
         inputfps = args::get(fps);
 
-    if(!usePipeBuffer) {
+    if(!useVideoSocket) {
         // If brightness is specified then use, otherwise use default
         if (brightness)
             vreader.set(CAP_PROP_BRIGHTNESS, args::get(brightness));
@@ -488,8 +434,10 @@ int main(int argc, char **argv)
     // Note we read directly from vreader here because we haven't turned the reader thread on yet
     Mat rawimage;
 
-    if(usePipeBuffer) {
-        rawimage = pipe_buffer_get_image();
+    if(useVideoSocket) {
+        uint64_t ts;
+        float yaw;
+        rawimage = raw_tcp_get_image(ts, yaw);
     } else {
         vreader >> rawimage;
     }
@@ -546,7 +494,7 @@ int main(int argc, char **argv)
     if(test) {
         for(;;) {
             cout << "Reading image...\n";
-            Mat frame = pipe_buffer_get_image();
+            Mat frame = raw_tcp_get_image();
             cout << "Writing image...\n";
             if(1) {
                 cv::imwrite("/var/www/html/out.png", frame);
@@ -562,7 +510,9 @@ int main(int argc, char **argv)
     */
 
     // Turn on incoming thread
-    std::thread inThread(incomingThread);
+
+    inThread = std::thread(incomingThread);
+
     MatTimeCapsule iframe;
 
     // Turn on writer thread
@@ -696,7 +646,7 @@ int main(int argc, char **argv)
             LandingTarget out;
             if(apriltag_process_image(iframe.mat, CamParam, out)) {
                 double processtime = CLOCK() - framestart;
-                if(!test) cout << "target:" << out.id << ":" << out.x << ":" << out.y << ":" << out.z << ":" << processtime << ":" << iframe.vars.timeStamp << ":" << CLOCK() * 1e+6 << ":"<< out.angle << std::endl << std::flush;
+                if(!test) cout << "target:" << out.id << ":" << out.x << ":" << out.y << ":" << out.z << ":" << processtime << ":" << iframe.vars.timeStamp << ":" << CLOCK() * 1e+6 << ":" << out.angle << ":" << iframe.vars.yaw << std::endl << std::flush;
             }
 
         } else {
@@ -854,7 +804,7 @@ int main(int argc, char **argv)
                         // IX: extract the rotation around the z-axis
                         double angle = atan2(marker_rot.at<double>(1, 0), marker_rot.at<double>(0, 0));
 
-                        cout << "target:" << Markers[i].id << ":" << xoffset << ":" << yoffset << ":" << distance << ":" << processtime << ":" << iframe.vars.timeStamp << ":" << CLOCK() * 1e+6 << ":"<< angle << std::endl << std::flush;
+                        cout << "target:" << Markers[i].id << ":" << xoffset << ":" << yoffset << ":" << distance << ":" << processtime << ":" << iframe.vars.timeStamp << ":" << CLOCK() * 1e+6 << ":" << angle << ":1000" << std::endl << std::flush;
 
                         // cout << "target:" << Markers[i].id << ":" << xoffset << ":" << yoffset << ":" << distance << ":" << processtime << ":" << CLOCK() * 1e+6 << std::endl << std::flush;
                         std::fflush(stdout); // explicitly flush stdout buffer
@@ -922,10 +872,15 @@ int main(int argc, char **argv)
     inThread.join();
     while (PK_QTS_EMPTY != outgoingQueue.Pop(oframe, 0));
     outThread.join();
-    if(!usePipeBuffer) {
+
+    close_video_socket();
+
+    if(!useVideoSocket) {
         vreader.release();
     }
     vwriter.release();
+
     cout.flush();
+
     return 0;
 }
