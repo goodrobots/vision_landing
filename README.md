@@ -48,6 +48,10 @@ Example command line:
 
 `./track_targets --get-offsets=85 --width 1280 --height 720 --fps 15 -o 'appsrc ! videoconvert ! videorate ! openh264enc bitrate=1000000 ! rtph264pay ! udpsink host=laptop port=5000' 'udpsrc port=5000 ! application/x-rtp, encoding-name=H264, payload=96 ! rtph264depay ! avdec_h264 ! capsfilter caps="video/x-raw, format=(string)I420, width=(int)1280, height=(int)720, interlace-mode=(string)progressive, pixel-aspect-ratio=(fraction)1/1, chroma-site=(string)mpeg2, framerate=(fraction)25/1" ! videoconvert ! appsink' calibration/dji-mini-se-1280x720.yml`
 
+To receive the output stream with the augmented reality drawings, use:
+
+`gst-launch-1.0 -v udpsrc port=5000 ! application/x-rtp, encoding-name=H264 ! queue ! rtph264depay ! h264parse ! avdec_h264  ! autovideosink`
+
 ### Video
 
 Here is a video of my first basic test landing a DJI Mini SE with Vision Landing 2 and [RosettaDrone](https://github.com/RosettaDrone/rosettadrone):
