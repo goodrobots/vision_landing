@@ -53,6 +53,10 @@ json CONFIG;
 // TODO: Migrate vision_landing.conf to config.json
 void load_config() {
     std::ifstream ifs("config.json");
+    if (!ifs.is_open()) {
+        cout << "Couldn't open 'config.json'" << endl;
+        exit(1);
+    }
     ifs >> CONFIG;
 }
 
