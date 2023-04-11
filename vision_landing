@@ -445,18 +445,8 @@ class TrackTargets:
                 # relMarkerOrientation: orientation of the marker (0° = top side of camera = "drone forward"; -90° = top side of marker is on the right side of the screen = "drone right")
                 # eg. if relMarkerOrientation = 0 and imgYaw 90° (drone is heading east) => markerOrientation is -90° (west).
 
-                # TODO: Use pose matrix instead of z-angle
-
-                # markerPolarAngle = polar angle of the center of the marker relative to the camera center. Not to be confused with orientation of the marker (relative to the camera). Clockwise with 0° on right side.
-                markerPolarAngle = math.atan2(y, x)
-
-                markerPolarAngle = markerPolarAngle + math.pi / 2 # omega
-
-                forward,right = -y,x
-                
-                r = 2 * math.pi - yawRad - markerPolarAngle # delta
-
-                north,east = rotate(forward,right, -r - markerPolarAngle)
+                forward,right = -y,x                
+                north,east = rotate(forward,right,yawRad)
 
                 craft.processState(nowTime, True, sensorTimestamp, north, east, relMarkerOrientation, z)
 
@@ -1357,7 +1347,7 @@ if True:
     craft.vehicle.simple_takeoff(targetAltitude)
     while True:
         print("Altitude: " + str(craft.vehicle.location.global_relative_frame.alt))
-        if craft.vehicle.location.global_relative_frame.alt >= targetAltitude * 0.95:
+        if craft.vehicle.location.global_relative_frame.alt >= targetAltitude * 0.90:
             print("Reached target altitude")
             break
         sleep(1)
