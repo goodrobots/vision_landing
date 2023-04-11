@@ -43,7 +43,10 @@ import sys
 useSmartLanding = True
 
 if useSmartLanding:
-    sys.path.append('../SmartLanding/')
+    import os
+    dir_path = os.path.dirname(os.path.realpath(__file__))
+    sys.path.append(dir_path + '/../SmartLanding/')
+
     #from smart_landing.drone_controller import DroneController, Target
     from smart_landing.drone_controller import DroneController, Target, Simulator
 
@@ -379,7 +382,8 @@ class TrackTargets:
         self.track_arguments.extend([args.input, calibration, str(args.markersize)])
 
     def launch(self):
-        self.process = Popen(self.track_arguments, stdin = PIPE, stdout = PIPE, stderr = PIPE, shell = False, bufsize=1)
+        global cwd
+        self.process = Popen(self.track_arguments, stdin = PIPE, stdout = PIPE, stderr = PIPE, shell = False, bufsize=1, cwd = cwd)
         self.reader = ThreadedReader(self.process.stdout, self.process.stderr)
         self.state = "initialising"
 
@@ -502,6 +506,10 @@ class TrackTargets:
 
         # Clear the vision tracking queue, we don't want to blast mavlink messages for everything stacked up
         while True:
+            if self.process.poll() is not None:
+                print("\nERROR: track_targets is not running")
+                exit(1)
+
             line = self.reader.readline()
             if not line:
                 sleep(0.1)
@@ -740,14 +748,13 @@ class Craft:
                     self.state = "velocity-start"
 
         elif self.state == "yaw-rate-start":
-            self.startYaw = self.vehicle.attitude.yaw * 180.0 / pi
+            self.startYaw = math.degrees(self.vehicle.attitude.yaw)
             self.testStartTime = nowTime
             self.testEndTime = nowTime + 2 * 1e+9
-            self.move(0, 0, 0, 5)
             self.nextState()
 
         elif self.state == "yaw-rate-run":
-            currentYaw = self.vehicle.attitude.yaw * 180.0 / pi
+            currentYaw = math.degrees(self.vehicle.attitude.yaw)
             deltaYaw = currentYaw - self.startYaw
             # print("deltaYaw: " + str(deltaYaw) + ";" + str(markerOrientation))
             self.move(0, 0, 0, 5)
@@ -795,10 +802,15 @@ class Craft:
 
         LOCKED_SQR_DIST = 0.2 **2
         LOCKED_MAX_VEL = 0.1 * testFactor
-        LOCKED_MAX_YAW_RATE = 0.1 * testFactor
+        LOCKED_MAX_YAW_RATE = 0.05 * testFactor
 
         # TODO: alt and z differe too much! Calibrate
         alt = self.vehicle.location.global_relative_frame.alt
+
+        if not self.gimbalIsDown:
+            print("Moving gimbal down...")
+            self.setServo(9, -90)
+            self.gimbalIsDown = True
 
         if not targetVisible:
             craft.goBack()
@@ -807,14 +819,15 @@ class Craft:
         if self.state == "start":
             self.state = "descend"
             self.lockdownCounter = 0
-
+            self.setServo(9, -90)
+            
         elif self.state == "descend":
             nortVel = 0
             eastVel = 0
             downVel = 0
             yawRate = 0
 
-            currentYaw = self.vehicle.attitude.yaw * 180.0 / pi
+            currentYaw = math.degrees(self.vehicle.attitude.yaw)
 
             if False: # TODO: Use SmartLanding
                 dv = drone.process(nowTime / 1e+9, sensorTimestamp / 1e+9, np.array([east, north]))
@@ -863,7 +876,16 @@ class Craft:
                             print("Drone stabilized. Proceed with final landing.")
                             self.send_nav_land_message()
 
+                            self.gimbalIsDown = False # If landing is interrupted, the gimbal needs to rotate down again
+
                             sleep(10) # HACK: Avoid goBack() while landing
+
+                            if self.vehicle.armed:
+                                print("ERROR: Landing failed (drone is still armed)..retrying")
+                            else:
+                                global doExit
+                                doExit = True
+                                print("Vehicle disarmed")
 
                     if not locked and self.lockdownCounter > 0:
                         print("Drone moved: v: " + str(self.stats.v) + ", yawRate: " + str(self.stats.yawRate) + "\nLockdown counter reset")
@@ -914,10 +936,30 @@ class Craft:
     # TODO: Before that, try to return to last position where we saw the marker. If that fails, return to initial altitude and position.
     def goBack(self):
         alt = self.vehicle.location.global_relative_frame.alt
-        if alt < self.initialAltitude:
-            print("Lost marker, going back.")
-            upVel = 0.1
+        if alt > self.maxLandingAltitude:
+            print("Too high, going down")
+            upVel = -0.8
             self.move(0, 0, upVel, 0)
+
+        elif self.initialAltitude < self.maxLandingAltitude and alt < self.initialAltitude:
+            print("Lost marker, going up")
+            upVel = 0.2
+            self.move(0, 0, upVel, 0)
+        else:
+            # TODO: Loiter arround to find marker
+            print("Lost marker")
+
+    def setServo(self, servo, val):
+        msg = self.vehicle.message_factory.command_long_encode(
+                0, # time_boot_ms (not used)
+                0,  # target system, target component
+                mavutil.mavlink.MAV_CMD_DO_SET_SERVO,
+                0,
+                servo, # RC channel...
+                1500+(val*5.5), # RC value
+                0, 0, 0, 0, 0)
+        self.vehicle.send_mavlink(msg)
+        self.vehicle.flush()
 
     def move(self, vx, vy, vz, yawRate, time_usec=0):
         if args.verbose:
@@ -1301,6 +1343,7 @@ if args.simulator:
 
 # If we loose the target, move back to initial altitude
 craft.initialAltitude = craft.vehicle.location.global_relative_frame.alt
+craft.maxLandingAltitude = 5 # TODO: Get from config file
 craft.lastDetection = 0
 craft.outV = np.array([0,0])
 craft.stats = Stats()
@@ -1308,6 +1351,27 @@ print("Initial altitude: " + str(craft.initialAltitude))
 
 track_targets.waitImage()
 
+print("Take off")
+if True:
+    targetAltitude = 1
+    craft.vehicle.simple_takeoff(targetAltitude)
+    while True:
+        print("Altitude: " + str(craft.vehicle.location.global_relative_frame.alt))
+        if craft.vehicle.location.global_relative_frame.alt >= targetAltitude * 0.95:
+            print("Reached target altitude")
+            break
+        sleep(1)
+
+    craft.gimbalIsDown = False
+
+if False:
+    fps = 15
+    print("Rotating")
+    for i in range(fps * 10):
+        craft.move(0, 0, 0, 50)
+        sleep(1.0 / 15)
+
+print("Start actions")
 craft.startActions()
 
 ### --------------------------------
@@ -1321,7 +1385,9 @@ if args.controlprocessing:
 loop_counter = 0
 lastMsgTime = 0
 
-while True:
+doExit = False
+
+while not doExit:
     # Update timesync
     tracktime.update()
 
