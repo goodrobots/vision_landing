@@ -1,9 +1,67 @@
-# vision_landing
+# Vision Landing 2
 
-_**WARNING: This project is currently discontinued and is of academic interest only. ArduPilot and PX4 autopilots do not yet safely support vision based precision landing.  PLEASE DO NOT USE THIS CODE other than for experimental or learning purposes.  IT WILL behave dangerously.  You have been warned.**_
+_**WARNING: Use at your own risk **_
 
 ### Precision landing using visual targets.  
-This is a project to achieve precision landing on drones using ArduCopter firmware, using (monocular) vision alone.  Fiducial markers are printed and used as landing targets, and these targets provide orientation, location and distance information when combined with accurate size information of the markers and calibrated camera information.  No rangefinder is necessary, as the distance to target is obtained automatically through pose estimation of the markers.  
+
+This is a project to achieve precision landing on drones, using (monocular) vision alone. Fiducial markers are printed and used as landing targets, and these targets provide orientation, location and distance information when combined with accurate size information of the markers and calibrated camera information.  No rangefinder is necessary, as the distance to target is obtained automatically through pose estimation of the markers.  
+
+This is a improved version of https://github.com/goodrobots/vision_landing with the following additional features:
+
+* Uses AprilTags.
+* Allows to define a Landing Point relative to multiple markers (not limited to marker centers). This also solves the problem of bouncing between detected markers.
+* Does the pose estimation using the biggest marker which offers a better pose estimation (more pixels to detect). Once out of the visual field, the next biggest detected marker will be used.
+* Supports a JSON configuration file (TODO: this should replace the old vision_landing.conf).
+* Implements an alternative input source using tcp sockets to obtain raw frames with less latency, less CPU ussage and better quality (used together with [RosettaDrone](https://github.com/RosettaDrone/rosettadrone)). The drone's yaw and an image timestamp is also sent together with the images.
+* Many bug fixes and improvements.
+* Merges the ideas and code of this alternative implementation. See: https://github.com/chobitsfan/apriltag_plnd/issues/1
+* Integrates the [SmartLanding](https://github.com/RosettaDrone/SmartLanding) algorithm framework and implements a flight controller to actually land the drone using the [SET_POSITION_TARGET_LOCAL_NED](https://mavlink.io/en/messages/common.html#SET_POSITION_TARGET_LOCAL_NED) and [MAV_CMD_NAV_LAND](https://mavlink.io/en/messages/common.html#MAV_CMD_NAV_LAND) MAVLink commands. Alternatively, you may also just send the [LANDING_TARGET](https://mavlink.io/en/messages/common.html#LANDING_TARGET) command and let the drone's flight controller perform the landing.
+
+For testing, you can use this camera simulator to generate and stream a scene with markers from the viewpoint of a drone controlled via MAVLink:
+https://github.com/kripper/mavlink-camera-simulator/
+
+Screenshot of 3 markers of different sizes. The biggest visible marker is used to estimate the pose of the relative landing point (red cross).
+
+![image](https://user-images.githubusercontent.com/1479804/226492709-68e153fe-f34d-4182-aac5-12cd4f482599.png)
+
+### Marker Offsets
+
+The best strategy is to set the landing point on the center of the smallest marker and have all other bigger markers referencing this landing point using offsets.
+This way the drone will be able to see at least the smallest marker until landing on the ground.
+
+The offsets (`offsetX` and `offsetY`) must be configured in the `config.json` file.
+
+To automatically compute the offsets, you can pass the `--get-offsets` argument to the `track_targets` binary.
+The smallest marker should have the offset `(0,0)` to point to its center.
+
+![image](https://user-images.githubusercontent.com/1479804/228932515-d2f5df8b-ed29-492a-b984-4cb42f768e69.png)
+
+### Running track_targets directly
+
+Before running `vision_landing`, it is recommended to try running `track_targets` directly.
+
+This is the sintax:
+
+`./track_targets [option...] --width <width> --height <height> --fps <fps> -o <output> <input> <camera-calibration-file.yml>`
+
+Example command line:
+
+`./track_targets --get-offsets=85 --width 1280 --height 720 --fps 15 -o 'appsrc ! videoconvert ! videorate ! openh264enc bitrate=1000000 ! rtph264pay ! udpsink host=laptop port=5000' 'udpsrc port=5000 ! application/x-rtp, encoding-name=H264, payload=96 ! rtph264depay ! avdec_h264 ! capsfilter caps="video/x-raw, format=(string)I420, width=(int)1280, height=(int)720, interlace-mode=(string)progressive, pixel-aspect-ratio=(fraction)1/1, chroma-site=(string)mpeg2, framerate=(fraction)25/1" ! videoconvert ! appsink' calibration/dji-mini-se-1280x720.yml`
+
+To receive the output stream with the augmented reality drawings, use:
+
+`gst-launch-1.0 -v udpsrc port=5000 ! application/x-rtp, encoding-name=H264 ! queue ! rtph264depay ! h264parse ! avdec_h264  ! autovideosink`
+
+### Video
+
+Here is a video of my first basic test landing a DJI Mini SE with Vision Landing 2 and [RosettaDrone](https://github.com/RosettaDrone/rosettadrone):
+
+[![First basic test](https://img.youtube.com/vi/tOXuLmG5JBc/0.jpg)](https://www.youtube.com/watch?v=tOXuLmG5JBc)
+
+---
+
+The rest of this document is a copy of the original Vision Landing project which only supported Aruco markers.
+You can calibrate the camera using Aruco markers as explained below and then use AprilTag markers for the landing.
 
 Demonstrations
 --------------------
@@ -100,7 +158,7 @@ There are two main components:
 
 track_targets must be compiled and installed into the main directory before vision_landing can be run.  vision_landing calls track_targets to do the actual target detection and vector calculations.
  ```
- git clone https://github.com/goodrobots/vision_landing
+ git clone https://github.com/RosettaDrone/vision-landing-2.git
  cd vision_landing/src
  cmake . && make && make install
  ```

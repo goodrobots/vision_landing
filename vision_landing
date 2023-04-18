@@ -1,12 +1,22 @@
 #!/usr/bin/env python2
 # -*- coding: utf-8 -*-
 
-# vision_landing
-# https://github.com/fnoop/vision_landing
-#
-# This python script connects to arducopter using dronekit, to control precision landing.
-# The control is purely visual using pose estimation from fiducial markers (eg. aruco or april tags), no additional rangefinder is needed.
-# It launches a separate program track_targets which does the actual cv work and captures the resulting vectors from non-blocking thread handler.
+"""
+vision_landing
+https://github.com/kripper/vision-landing-2
+
+This python script connects to arducopter using dronekit, to control precision landing.
+The control is purely visual using pose estimation from fiducial markers (eg. aruco or april tags), no additional rangefinder is needed.
+It launches a separate program track_targets which does the actual cv work and captures the resulting vectors from non-blocking thread handler.
+
+TODO:
+- Controller:
+    - Detect velocity using last measurements after eg. 2 [s] (to remove the transient)
+        - Measure total time for different durations (eg. 1 [s] and 2 [s]) to calculate the transient at start and end of motion.
+            - We asume the transient are the same of different durations
+            - This way, we can model the total time and velocity-output requried for a given distance and time
+- Stop descending if marker is getting our of sight (drone should center before continue descending)
+"""
 
 from threading import Thread, Event
 from Queue import LifoQueue, Queue, Empty
@@ -24,11 +34,58 @@ from math import sqrt
 import signal
 import logging
 import ctypes
+import math
+import atexit
 
+import numpy as np
+import sys
+
+useSmartLanding = True
+
+if useSmartLanding:
+    import os
+    dir_path = os.path.dirname(os.path.realpath(__file__))
+    sys.path.append(dir_path + '/../SmartLanding/')
+
+    #from smart_landing.drone_controller import DroneController, Target
+    from smart_landing.drone_controller import DroneController, Target, Simulator
+
+    # TODO: Tune
+    cameraDelay = 5
+    actionDelay = 2
+
+    drone = DroneController(False, cameraDelay, actionDelay)
+
+    if False:
+        sim = Simulator(cameraDelay, False)
+        sim.interactive = True
+        sim.renderAbsolute = True
+        drone.simulator = sim
+    else:
+        sim = None
 
 ### ================================
 ### Define Functions
 ### ================================
+
+def printNoLF(str):
+    # TODO: Python 3: print(str, end="")
+    sys.stdout.write(str)
+    sys.stdout.flush()
+
+# Convert forward,right -> north,east
+# r is clockwise in radians with 0 pointing north
+# Use negative r to convert north,east -> forward,right
+def rotate(forward,right, r):
+    c = math.cos(r)
+    s = math.sin(r)
+    return forward * c - right * s, forward * s + right * c
+
+# Get shortest angular direction between two angles
+def getRotationDirection(alpha, beta):
+    phi = abs(beta - alpha) % 360  # This is either the distance or 360 - distance
+    distance = 360 - phi if phi > 180 else phi
+    return distance if (alpha - beta >= 0 and alpha - beta <= 180) or (alpha - beta <= -180 and alpha - beta >= -360) else distance * -1
 
 # Return correctly typed config parser option
 def get_config_value(parser, section, option):
@@ -74,6 +131,50 @@ def monotonic_time():
 ### Define Classes
 ### ================================
 
+class Stats:
+    def __init__(self):
+        self.yaw = 0
+
+    def reset(self):
+        self.lastX = None
+        self.lastTime = None
+        self.stillCounter = 0
+        self.waitUntilAtRest = False
+        self.lastTargetVisible = None
+        self.printTelemetry = False
+
+    def compute(self, nowTime, targetVisible, north, east):
+        if self.lastTargetVisible is not None and targetVisible != self.lastTargetVisible:
+            if targetVisible:
+                print("Target visible")
+            else:
+                print("Target not visible")
+
+        self.lastTargetVisible = targetVisible
+
+        if not targetVisible:
+            self.reset()
+            return
+
+        self.x = np.array([east, north])
+
+        if self.lastX is not None:
+            self.dx = self.x - self.lastX # Distance between samples
+            self.sec = (nowTime - self.lastTime) / 1e+9 # Time between samples
+            self.v = np.linalg.norm(self.dx) / self.sec # Velocity between samples
+
+            if self.printTelemetry:
+                print("\tv: " + str(self.v))
+
+            self.yawRate = (self.yaw - self.lastYaw) / self.sec
+
+        else:
+            self.dx = np.array([0,0])
+
+        self.lastX = self.x
+        self.lastTime = nowTime
+        self.lastYaw = self.yaw
+
 # Threaded Reader class connects the output from the track_targets process to a non-blocking reader, and adds any messages to a queue.
 # The queue is then read by the main loop and if anything is waiting it calls a method to process from the track_targets object.
 class ThreadedReader:
@@ -82,6 +183,7 @@ class ThreadedReader:
         self.stderr = stderr
         self.queue = LifoQueue()
         self._stop = Event()
+
         def insertQueue(pipe, queue, qtype="stdout"):
             while not self.stopped():
                 self.clear() # Clear the queue before adding anything - we only want the latest data
@@ -91,15 +193,18 @@ class ThreadedReader:
                 if line and qtype == "stdout":
                     queue.put(line)
                 elif line and qtype == "stderr":
-                    queue.put("error:"+line)
+                    queue.put("error:" + line)
+
         self.threadout = Thread(target = insertQueue, args = (self.stdout, self.queue))
         self.threadout.daemon = True
         self.threadout.start()
         self.threaderr = Thread(target = insertQueue, args = (self.stderr, self.queue, "stderr"))
         self.threaderr.daemon = True
         self.threaderr.start()
+
     def size(self):
         return self.queue.qsize()
+
     def readline(self, timeout = None):
         try:
             line = self.queue.get(block = timeout is not None, timeout = timeout)
@@ -108,17 +213,23 @@ class ThreadedReader:
         except Empty:
             log.debug("empty queue")
             return None
+
     def clear(self):
         #with self.queue.mutex:
         #    self.queue.clear()
-        while self.size() > 10:
+
+        # TODO: BUG: Important line ("initcomp") is added and immediately removed without being processed, because of multiple OpenCV/Gstreamer initialization messages.
+        #while self.size() > 10:
+        while self.size() > 100:
             # self.readline()
             tmpline = self.queue.get(False)
             log.debug("clearing queue: {} : {}".format(self.size(), tmpline))
             self.queue.task_done()
         return
+
     def stop(self):
         self._stop.set()
+
     def stopped(self):
         return self._stop.isSet()
 
@@ -140,6 +251,7 @@ class TrackTime:
         self.t = timespec()
         # Setup listener decorator
         @self.vehicle.on_message("TIMESYNC")
+
         def listener_timesync(subself, name, message):
             try:
                 if message.ts1 < self.mytime_nanos:
@@ -164,6 +276,7 @@ class TrackTime:
             except:
                 if self.debug:
                     log.debug("Error, unexpected timesync timestamp received:"+str(message.ts1))
+
     # Blocking method to call once during startup, to calculate delta
     def initial_sync(self):
         # Keep sending timesync requests until the delta buffer is full, or a timeout is reached
@@ -176,9 +289,11 @@ class TrackTime:
             self.delta = sum(list(self.delta_buffer)) / len(list(self.delta_buffer))
         else:
             log.warning("Error creating timesync delta buffer - unpredictable results will follow")
+
     # Method to return monotonic clock time
     def current_timestamp(self):
         return monotonic_time()
+
     # Request a timesync update from the flight controller
     def update(self, ts=0, tc=0):
         if ts == 0:
@@ -188,17 +303,21 @@ class TrackTime:
             tc,     # tc1
             ts      # ts1
         )
+        
         self.vehicle.send_mavlink(msg)
         self.vehicle.flush()
+
     # Note: This returns the 'actual' time of the FC with the delay compensated from the last sync event
     def actual(self):
         return self.fctime_nanos
+
     # Return actual + time elapsed since actual set
     def estimate(self):
         estmynanos = self.current_timestamp() - self.difference
         estfcnanos = self.actual() + (self.current_timestamp() - self.mytime_nanos)
         #log.debug("Estimate time: current-difference:"+str(estmynanos/1000000)+", fctime_nanos+elapsed:"+str(estfcnanos/1000000)+", difference:"+str((estmynanos - estfcnanos) / 1000000))
         return estmynanos
+
     def toFcTime(self, inTime):
         return inTime - self.difference
 
@@ -215,9 +334,11 @@ class TrackTargets:
         # Launch tracking process and process output
         log.info("Launching track_targets with arguments:" + " ".join(self.track_arguments))
         self.launch()
+
     def setup(self, args, calibration):
         # Define the basic arguments to track_targets
-        self.track_arguments = [cwd+'/track_targets']
+        self.track_arguments = [cwd + '/track_targets']
+
         # If marker dictionary is set, pass it through
         if args.markerdict:
             self.track_arguments.extend(['-d', args.markerdict])
@@ -259,18 +380,24 @@ class TrackTargets:
             self.track_arguments.extend(['--markerthreshold', str(args.markerthreshold)])
         # Add positional arguments
         self.track_arguments.extend([args.input, calibration, str(args.markersize)])
+
     def launch(self):
-        self.process = Popen(self.track_arguments, stdin = PIPE, stdout = PIPE, stderr = PIPE, shell = False, bufsize=1)
+        global cwd
+        self.process = Popen(self.track_arguments, stdin = PIPE, stdout = PIPE, stderr = PIPE, shell = False, bufsize=1, cwd = cwd)
         self.reader = ThreadedReader(self.process.stdout, self.process.stderr)
         self.state = "initialising"
+
     def processline(self, line):
+        #print("Processing line: " + line)
+
         # Unpack data from track_targets data
         trackdata = line.rstrip().split(":")
+
         # If not target data, log and skip to next data
         if trackdata[0] != "target":
             datatype = trackdata[0]
             if trackdata[0] == "error":
-                log.error("track_targets: " +str(trackdata[1:]))
+                log.error("track_targets: " + str(trackdata[1:]))
             elif trackdata[0] == "debug" and args.verbose:
                 log.debug("track_targets: " + datatype[0].upper() + datatype[1:] + str(trackdata[1:]))
             elif trackdata[0] == "info":
@@ -278,23 +405,60 @@ class TrackTargets:
                 if trackdata[1] == "initcomp":
                     self.state = "initialised"
             return
+
         # Unpack and cast target data to correct types
         try:
-            [id,x,y,z,processtime,sensorTimestamp,sendTimestamp,receiveTimestamp] = trackdata[1:]
-            [id,x,y,z,processtime,sensorTimestamp,sendTimestamp,receiveTimestamp] = [int(id),float(x),float(y),float(z),float(processtime),float(sensorTimestamp),float(sendTimestamp),float(receiveTimestamp)]
+            [id,x,y,z,processtime,sensorTimestamp,sendTimestamp,relMarkerOrientation,receiveTimestamp,imgYaw] = trackdata[1:]
+            [id,x,y,z,processtime,sensorTimestamp,sendTimestamp,relMarkerOrientation,receiveTimestamp,imgYaw] = [int(id),float(x),float(y),float(z),float(processtime),float(sensorTimestamp),float(sendTimestamp),float(relMarkerOrientation),float(imgYaw),float(receiveTimestamp)]
         except:
             log.debug("track_targets: error in data: " + str(line.rstrip()))
             return
+
         # If fake rangefinder distance is required, send it
         if args.fakerangefinder:
             craft.send_distance_message(int(z*100))
+
         # Send the landing_target message to arducopter
         # NOTE: This sends the current estimated fctime, NOT the time the frame was actually captured.
         # So this does not allow for the CV processing time. This should be sending when the frame is actually captured, before processing.
         nowTime = monotonic_time()
+
         # If data is less than 250ms since the image shuttr, send the message.
         if nowTime - sensorTimestamp < 250 * 1e+6:
-            craft.send_land_message(x, y, z, tracktime.toFcTime(sensorTimestamp) / 1000, id) # Send sensor timestamp adjusted to timesync, in micros
+            if useSmartLanding:
+                # --- IX ---
+
+                # PROBLEM: The marker coords are in forward-right coordinate frame (relative to the drone's yaw at the time of the image).
+                # If the drone rotates, the direction to the marker also rotates and is not valid anymore.
+                # SOLUTION: We will express directions in a drone's yaw invariant coordinate frame (local NED).
+                # We don't use a global coordinate frame, because the drone won't always know its global location and orientation.
+                # Local NED is not global, but relative to the initial takeoff coordinates.
+
+                if imgYaw == 1000:
+                    # track_targets is not providing the yaw with the image => use current yaw
+                    yawRad = craft.vehicle.attitude.yaw
+                    craft.stats.yaw = math.degrees(yawRad)
+                else:
+                    yawRad = math.radians(imgYaw)
+                    craft.stats.yaw = imgYaw
+
+                # relMarkerOrientation: orientation of the marker (0° = top side of camera = "drone forward"; -90° = top side of marker is on the right side of the screen = "drone right")
+                # eg. if relMarkerOrientation = 0 and imgYaw 90° (drone is heading east) => markerOrientation is -90° (west).
+
+                forward,right = -y,x                
+                north,east = rotate(forward,right,yawRad)
+
+                craft.processState(nowTime, True, sensorTimestamp, north, east, relMarkerOrientation, z)
+
+                if sim is not None:
+                    sim.obsDroneX = sim.obsDroneX + craft.outV
+
+            else:
+                craft.send_land_message(x, y, z, tracktime.toFcTime(sensorTimestamp) / 1000, id) # Send sensor timestamp adjusted to timesync, in micros
+
+        else:
+            print("Target timed out since: " + str((nowTime - sensorTimestamp) / 1e+9))
+
         # Track frame timing to calculate fps, running average over last 10 frames
         end_t = time()
         time_taken = end_t - self.start_t
@@ -303,6 +467,7 @@ class TrackTargets:
         self.frame_times = self.frame_times[-10:]
         fps = len(self.frame_times) / sum(self.frame_times)
         log.info("Fctime:{:.0f}:{:.0f}, Fps:{:.2f}, Alt:{}, Rng:{}, Marker:{}, Distance:{}, xOffset:{}, yOffset:{}, processTime:{:.0f}, sensorTime:{:.0f}, sendTime:{:.0f}, receiveTime:{:.0f}, currentTime:{:.0f}, sensorDiff:{}, sendDiff:{}, receiveDiff:{}".format(tracktime.actual(), tracktime.estimate(), fps, craft.vehicle.location.global_relative_frame.alt, craft.vehicle.rangefinder.distance, id, z, x, y, processtime, sensorTimestamp, sendTimestamp, receiveTimestamp, nowTime, nowTime - sensorTimestamp, nowTime - sendTimestamp, nowTime - receiveTimestamp))
+
     def start(self):
         if self.state == "initialised":
             log.info("Requesting track_targets to start tracking:"+str(craft.vehicle.mode))
@@ -310,10 +475,12 @@ class TrackTargets:
             self.state = "started"
         else:
             log.info("Request to start track_targets tracking failed, state is not 'initialised'")
+
     def stop(self):
         log.info("Requesting track_targets to stop tracking:"+str(craft.vehicle.mode))
         self.state = "initialised"
         self.process.send_signal(signal.SIGUSR2)
+
     def end(self):
         log.info("Shutting down track_targets")
         # Stop threaded reader
@@ -323,6 +490,30 @@ class TrackTargets:
         if self.process.returncode == None:
             self.process.terminate()
         self.shutdown = True
+
+    def waitImage(self):
+        printNoLF("Waiting for video streamer...")
+
+        # Clear the vision tracking queue, we don't want to blast mavlink messages for everything stacked up
+        while True:
+            if self.process.poll() is not None:
+                print("\nERROR: track_targets is not running")
+                exit(1)
+
+            line = self.reader.readline()
+            if not line:
+                sleep(0.1)
+
+            elif not search("^target:", line):
+                if search("^error:", line):
+                    log.error("track_targets: "+sub("^error:","",line))
+                # Make sure to catch and process initcomp if it's in this initial queue
+                elif search("initcomp", line):
+                    self.processline(line)
+                    print("ok")
+                    return
+                else:
+                    log.info("track_targets: "+line)
 
 # The Craft class connects to the flight controller and sends controlling messages
 class Craft:
@@ -335,6 +526,373 @@ class Craft:
         self.precloiter_opt = self.find_precloiter_opt()
         if self.precloiter_opt:
             log.info("Precision loiter switch found: Channel "+str(self.precloiter_opt))
+
+    def startActions(self):
+        """
+        In self.actions we define actions and states that will be exectued.
+        We can use self.nextState() to jump to next state.
+
+        The format is:
+
+        <action 1> : [
+            <state 1>,
+            <state 2>,
+            ...
+        ],
+        <action 2> : [
+            <state 1>,
+            <state 2>,
+            ...
+        ]
+        """
+        self.actions = {
+            "land" : [
+                "start"
+            ],
+            "measure" : [
+                "yaw-rate-start",
+                "yaw-rate-run",
+
+                "yaw-rate-start",
+                "yaw-rate-run",
+
+                "yaw-rate-start",
+                "yaw-rate-run",
+
+                "yaw-rate-start",
+                "yaw-rate-run",
+
+                "yaw-rate-start",
+                "yaw-rate-run",
+
+                "yaw-rate-start",
+                "yaw-rate-run",
+
+                "yaw-rate-start",
+                "yaw-rate-run",
+            ]
+        }
+        """
+        Here we are leaving the disabled actions:
+
+        "measure" : [
+            "stability-start",
+            "stability",
+
+            "visual-lag-start",
+            "visual-lag",
+
+            "velocities"
+        ]
+        """
+
+        self.visualLag = None # Meastured visual lag
+        self.count = 0
+
+        np.set_printoptions(suppress=True)
+
+        self.actionIterator = iter(self.actions)
+        self._nextAction()
+
+        # Init vars
+        self.stats.reset()
+
+    def processState(self, nowTime, targetVisible, sensorTimestamp = None, north = None, east = None, markerOrientation = None, z = None):
+        if not craft.connected:
+            return
+
+        self.lastDetection = nowTime
+
+        self.stats.compute(nowTime, targetVisible, north, east)
+
+        if self.action == "measure":
+            if targetVisible:
+                self.measure(nowTime, north, east, markerOrientation)
+
+        elif self.action == "land":
+            self.land(nowTime, targetVisible, sensorTimestamp, north, east, markerOrientation, z)
+
+    def waitAtRest(self):
+        print("Waiting until at rest...")
+        self.waitUntilAtRest = True
+        self.stillCounter = 0
+
+    def waitTransient(self):
+        print("Waiting until transient is over")
+        # TODO: Not implemented.
+
+    def _nextAction(self):
+        self.action = next(self.actionIterator, None)
+        if self.action is None:
+            print("Ready")
+            exit(0)
+        else:
+            print "Action: " + self.action
+            self.stateIterator = iter(self.actions[self.action])
+            self.nextState()
+
+    def nextState(self):
+        self.state = next(self.stateIterator, None)
+        if self.state is None:
+            self._nextAction()
+        else:
+            print "\n--- State: " + self.state
+
+    # --- Actions ---
+
+    # Here we implement a sequence of tests to measure the drone dynamics.
+    def measure(self, nowTime, north, east, markerOrientation):
+        stats = self.stats
+
+        if self.waitUntilAtRest:
+            if v < 0.05:
+                self.stillCounter += 1
+                if self.stillCounter >= 10:
+                    print("Drone is at rest")
+                    self.waitUntilAtRest = False
+            else:
+                self.stillCounter = 0
+
+        elif self.state == "visual-lag-start":
+            # Perform a sudden movement that can be easily detected to measure the visual latency.
+            # TODO: Detect yaw rate?
+            # TODO: Measture accumulated distances instead of velocities.
+            print("\nMeasuring visual lag...")
+            self.motionDirection = x / np.linalg.norm(x)
+            self.startX = x
+
+            self.testStartTime = nowTime
+            self.testEndTime = nowTime + 5 * 1e+9
+            self.maxVel = 0
+            self.maxVelTime = None
+            self.state = "visual-lag"
+
+            # Sudden movement easy to detect
+            destVel = self.motionDirection * 0.2
+            print("\nKicking")
+            self.move(destVel[1], destVel[0], 0, 0)
+
+        elif self.state == "visual-lag":
+            projVel = -np.dot(stats.dx, self.motionDirection) # Velocity in projected direction
+            if projVel > self.maxVel:
+                self.maxVel = projVel
+                self.maxVelTime = nowTime
+
+            if nowTime >= self.testEndTime:
+                if self.maxVelTime is None:
+                    print("ERROR: Test failed => repeat")
+                    self.state = ""
+                else:
+                    self.visualLag = self.maxVelTime - self.testStartTime
+                    drone.setCameraDelay(self.visualLag / 1e+9)
+                    dist = np.linalg.norm(x - self.startX)
+                    print("Visual lag: " + str(self.visualLag / 1e+9) + ", dist: " + str(dist))
+
+                    self.count += 1
+                    if self.count >= 10:
+                        self.nextState()
+                    else:
+                        # Repeat
+                        self.state = "visual-lag-start"
+
+        elif self.state == "velocities":
+            self.count = 0
+            self.state = "velocity-start"
+
+        elif self.state == "velocity-start":
+            self.vScalar = self.count * 0.05
+            print("\nVelocity test: " + str(self.vScalar) + " [m/s]")
+            if self.vScalar > 0.5:
+                print("DANGER: Velocity to high?")
+                exit(1)
+            self.destVel = x / np.linalg.norm(x) * self.vScalar
+            self.startX = x
+            self.testStartTime = nowTime
+            self.state = "velocity-rest"
+            self.waitAtRest()
+            print("TODO: Remove transient")
+
+        elif self.state == "velocity-rest":
+            self.state = "velocity-run"
+            self.testEndTime = nowTime + 2 * 1e+9
+            # TODO: Do waitTransient()
+
+        elif self.state == "velocity-run":
+            self.move(self.destVel[1], self.destVel[0], 0, 0)
+
+            if nowTime >= self.testEndTime:
+                dist = np.linalg.norm(x - self.startX)
+                sec = (nowTime - self.testStartTime) / 1e+9
+                avgVel = dist / sec
+
+                print("Avg. velocity: " + str(avgVel))
+
+                if self.vScalar:
+                    self.velFactor = v / self.vScalar
+                    print("Velocity factor: ", self.velFactor)
+
+                if self.count >= 4:
+                    self.nextState()
+                else:
+                    self.count += 1
+                    self.state = "velocity-start"
+
+        elif self.state == "yaw-rate-start":
+            self.startYaw = math.degrees(self.vehicle.attitude.yaw)
+            self.testStartTime = nowTime
+            self.testEndTime = nowTime + 2 * 1e+9
+            self.nextState()
+
+        elif self.state == "yaw-rate-run":
+            currentYaw = math.degrees(self.vehicle.attitude.yaw)
+            deltaYaw = currentYaw - self.startYaw
+            # print("deltaYaw: " + str(deltaYaw) + ";" + str(markerOrientation))
+            self.move(0, 0, 0, 5)
+            print("yaw: " + str(currentYaw) + ";" + str(markerOrientation))
+
+            if nowTime >= self.testEndTime:
+                self.nextState()
+
+        elif self.state == "stability-start":
+            print("Measuring stability...")
+            self.positions = []
+            self.testStartTime = nowTime
+            self.testEndTime = nowTime + 5 * 1e+9
+            self.nextState()
+
+        elif self.state == "stability":
+            self.positions.append(x)
+
+            if nowTime >= self.testEndTime:
+                arr = np.array(self.positions)
+
+                center = np.mean(self.positions, axis=0)
+                #std_dev = np.std(self.positions)
+
+                minX = np.amin(arr[:, 0])
+                maxX = np.amax(arr[:, 0])
+                minY = np.amin(arr[:, 1])
+                maxY = np.amax(arr[:, 1])
+
+                self.stability = {
+                    'errX': maxX - minX,
+                    'errY': maxY - minY
+                }
+                print(self.stability)
+
+                self.nextState()
+
+    def land(self, nowTime, targetVisible, sensorTimestamp, north, east, markerOrientation, z):
+        MAX_SQR_DIST = 0.2 **2
+
+        LOCKED_ALT_CENTER = 1 # Will only continue descending if we are centered
+        LOCKED_ALT_STAY = 0.7   # Will stay here
+
+        testFactor = 2 # TODO: TEMP:
+
+        LOCKED_SQR_DIST = 0.2 **2
+        LOCKED_MAX_VEL = 0.1 * testFactor
+        LOCKED_MAX_YAW_RATE = 0.05 * testFactor
+
+        # TODO: alt and z differe too much! Calibrate
+        alt = self.vehicle.location.global_relative_frame.alt
+
+        if not self.gimbalIsDown:
+            print("Moving gimbal down...")
+            self.setServo(9, -90)
+            self.gimbalIsDown = True
+
+        if not targetVisible:
+            craft.goBack()
+            return
+
+        if self.state == "start":
+            self.state = "descend"
+            self.lockdownCounter = 0
+            self.setServo(9, -90)
+            
+        elif self.state == "descend":
+            nortVel = 0
+            eastVel = 0
+            downVel = 0
+            yawRate = 0
+
+            currentYaw = math.degrees(self.vehicle.attitude.yaw)
+
+            if False: # TODO: Use SmartLanding
+                dv = drone.process(nowTime / 1e+9, sensorTimestamp / 1e+9, np.array([east, north]))
+                self.outV = self.outV + dv
+                nortVel = self.outV[1]
+                eastVel = self.outV[0]
+
+                #print("dv: " + str(dv) + ", v: " + str(self.outV))
+
+            else:
+                # TODO: CHECK: Should be equivalent, but has some error
+                # TODO: Use getRotationDirection() ?
+                #dstYaw = currentYaw - 2 * pi + (-markerOrientation)
+
+                dstYaw = currentYaw - markerOrientation
+
+                yawRate = (dstYaw - currentYaw) * 0.5
+
+            factor = 0.15
+            nortVel = north * factor
+            eastVel = east * factor
+
+            # Down motion
+            dist = east **2 + north **2
+
+            # TODO: Also use z?
+            # TODO: Smooth with pid or other function
+            if dist < MAX_SQR_DIST:
+                if alt < LOCKED_ALT_CENTER:
+                    downVel = 0 # Stay here unless dist < LOCKED_SQR_DIST
+                elif alt < 2:
+                    downVel = 0.15
+                else:
+                    downVel = alt / 5
+
+            # Final landing
+            locked = False
+            if dist < LOCKED_SQR_DIST:
+                if alt < LOCKED_ALT_STAY:
+                    downVel = 0
+
+                    if self.stats.v < LOCKED_MAX_VEL and self.stats.yawRate < LOCKED_MAX_YAW_RATE:
+                        locked = True
+                        self.lockdownCounter += 1
+                        if self.lockdownCounter >= 20:
+                            print("Drone stabilized. Proceed with final landing.")
+                            self.send_nav_land_message()
+
+                            self.gimbalIsDown = False # If landing is interrupted, the gimbal needs to rotate down again
+
+                            sleep(10) # HACK: Avoid goBack() while landing
+
+                            if self.vehicle.armed:
+                                print("ERROR: Landing failed (drone is still armed)..retrying")
+                            else:
+                                global doExit
+                                doExit = True
+                                print("Vehicle disarmed")
+
+                    if not locked and self.lockdownCounter > 0:
+                        print("Drone moved: v: " + str(self.stats.v) + ", yawRate: " + str(self.stats.yawRate) + "\nLockdown counter reset")
+
+                elif alt < LOCKED_ALT_CENTER:
+                    downVel = 0.05
+            else:
+                print("Drone not centered. distance: " + str(dist))
+
+            if not locked:
+                self.lockdownCounter = 0
+
+            if nortVel != 0 or eastVel != 0 or downVel != 0 or yawRate != 0:
+                print("alt: " + str(alt) + ", z: " + str(z) + ", D: " + str(downVel) + ", E: " + str(east) + ", N: " + str(north))
+
+            self.move(nortVel, eastVel, -downVel, yawRate)
+
     def connect(self, connectstr):
         try:
             # self.vehicle = connect(connectstr, wait_ready=True, rate=1)
@@ -345,6 +903,7 @@ class Craft:
         except Exception,e:
             log.critical("Error connecting to vehicle:"+str(repr(e)))
             self.connected = False
+
     # Define function to send distance_message mavlink message for mavlink based rangefinder, must be >10hz
     # http://mavlink.org/messages/common#DISTANCE_SENSOR
     def send_distance_message(self, dist):
@@ -362,9 +921,92 @@ class Craft:
         self.vehicle.flush()
         if args.verbose:
             log.debug("Sending mavlink distance_message:" +str(dist))
+
+    # Return to initial altitude
+    # TODO: Before that, try to return to last position where we saw the marker. If that fails, return to initial altitude and position.
+    def goBack(self):
+        alt = self.vehicle.location.global_relative_frame.alt
+        if alt > self.maxLandingAltitude:
+            print("Too high, going down")
+            upVel = -0.8
+            self.move(0, 0, upVel, 0)
+
+        elif self.initialAltitude < self.maxLandingAltitude and alt < self.initialAltitude:
+            print("Lost marker, going up")
+            upVel = 0.2
+            self.move(0, 0, upVel, 0)
+        else:
+            # TODO: Loiter arround to find marker
+            print("Lost marker")
+
+    def setServo(self, servo, val):
+        msg = self.vehicle.message_factory.command_long_encode(
+                0, # time_boot_ms (not used)
+                0,  # target system, target component
+                mavutil.mavlink.MAV_CMD_DO_SET_SERVO,
+                0,
+                servo, # RC channel...
+                1500+(val*5.5), # RC value
+                0, 0, 0, 0, 0)
+        self.vehicle.send_mavlink(msg)
+        self.vehicle.flush()
+
+    def move(self, vx, vy, vz, yawRate, time_usec=0):
+        if args.verbose:
+            log.debug("Sending mavlink set_position_target_local_ned - time_usec:{:.0f}, dx:{}, dy:{}".format(time_usec, str(vx), str(vy)))
+
+        msg = self.vehicle.message_factory.set_position_target_local_ned_encode(
+            0,          # TODO: Crashes with time_usec
+
+            0,          # SysId
+            0,          # CompId
+
+            mavutil.mavlink.MAV_FRAME_LOCAL_NED,          # frame
+            0b111,          # mask (ignore x,y,z)
+
+            0,	        # x
+            0,	        # y
+            0,          # z
+
+            vx, 		# vx
+            vy,		    # vy
+            vz,         # vz
+
+            0,          # afx
+            0,          # afy
+            0,          # afz
+
+            0,          # yaw
+            yawRate,          # yaw rate
+        )
+        self.vehicle.send_mavlink(msg)
+        self.vehicle.flush()
+
+    def send_nav_land_message(self):
+        msg = self.vehicle.message_factory.command_long_encode(
+            1,  # system_id
+            1,  # component_id,
+            mavutil.mavlink.MAV_CMD_NAV_LAND,  # command ID
+            0,  # confirmation
+            0, 0, 0, 0,  # parameters 1-4 (not used)
+            0,  # parameter 5: target altitude
+            0, 0  # parameters 6-8 (not used)
+        )
+        """
+        param1=10,  # descend time
+        param2=landing_target_msg.x,
+        param3=landing_target_msg.y,
+        param4=0,  # desired yaw angle
+        param5=1,  # target ID
+        param6=landing_target_msg.size_x,
+        param7=MAV_LANDING_TARGET_TYPE_LIGHT_BEACON
+        """
+        self.vehicle.send_mavlink(msg)
+        self.vehicle.flush()
+
     # Define function to send landing_target mavlink message for mavlink based precision landing
     # http://mavlink.org/messages/common#LANDING_TARGET
-    def send_land_message(self, x,y,z, time_usec=0, target_num=0):
+    def send_land_message(self, x, y, z, time_usec=0, target_num=0):
         msg = self.vehicle.message_factory.landing_target_encode(
             time_usec,          # time target data was processed, as close to sensor capture as possible
             target_num,          # target num, not used
@@ -385,6 +1027,7 @@ class Craft:
         self.vehicle.flush()
         if args.verbose:
             log.debug("Sending mavlink landing_target - time_usec:{:.0f}, x:{}, y:{}, z:{}".format(time_usec, str(x), str(y), str(z)))
+
     # Define function that arms and takes off, used for testing in SITL
     # Lifted from dronekit-python examples
     def arm_and_takeoff(self, targetAltitude):
@@ -425,10 +1068,13 @@ class Craft:
 class SigTrack:
     def __init__(self):
         self.counter = 0
+
     def add(self):
         self.counter += 1
+
     def count(self):
         return self.counter
+
     def handle_sig(self, signal, frame):
         log.info("Signal handler called, calling shutdown and cleanup logic")
         track_targets.end()
@@ -437,6 +1083,11 @@ class SigTrack:
         if sigtracker.count() >= 3:
             log.warning("Signal handler called three times, exiting immediately")
             exit(1)
+
+        print("\nWaiting for children...")
+        track_targets.process.wait()
+
+        raise SystemExit('Shuting down') # Interrupt lbocking methods in main thread (eg: self.find_precloiter_opt())
 
 ### ================================
 ### End Define Classes
@@ -511,10 +1162,16 @@ if not args.calibration or not args.markersize or not args.connect:
 
 # Setup logging
 console = logging.StreamHandler()
+
 if args.logdir:
     # If logdir specified, create if it doesn't exist
     if not path.exists(args.logdir):
         makedirs(args.logdir)
+
+    # Bug fix. See: https://stackoverflow.com/questions/30861524/logging-basicconfig-not-creating-log-file-when-i-run-in-pycharm
+    for handler in logging.root.handlers[:]:
+        logging.root.removeHandler(handler)
+
     # Add timestamped logfile out
     logging.basicConfig(filename=args.logdir+'/vision_landing.'+nowtime+'.log', format='%(asctime)s %(levelname)s %(message)s', level=logging.DEBUG)
     # Create handly symlink to current logfile
@@ -553,7 +1210,7 @@ except Exception as error:
     exit(1)
 track_targets.process.poll()
 if track_targets.process.returncode != None:
-    log.critical("Error starting track_targets: ".format(track_targets.process.returncode))
+    log.critical("Error starting track_targets: "+format(track_targets.process.returncode))
     exit(1)
 
 # Define a function that stops and clears up cv process
@@ -568,6 +1225,9 @@ def cleanup():
     except:
         pass
 
+# Do a cleanup() on a crash. Otherwise track_targets will continue running.
+atexit.register(cleanup)
+
 ### --------------------------------
 ### Start up procedure - setup signal handlers,
 ###  connect to drone, start syncing time with drone,
@@ -580,14 +1240,17 @@ signal.signal(signal.SIGINT, sigtracker.handle_sig)
 signal.signal(signal.SIGTERM, sigtracker.handle_sig)
 
 # Connect to the Vehicle
-log.info("Connecting to drone on: %s" % args.connect)
+log.info("Connecting to drone [%s]" % args.connect)
+printNoLF("Connecting to drone [%s]..." % args.connect)
 craft = Craft(args.connect)
 if not craft.connected:
+    print("Error: Could not connect to drone")
     log.critical("Error: Could not connect to drone")
     cleanup()
     exit(1)
 else:
     log.info("Connected to drone")
+    print("ok")
 
 # Create a new TrackTime object to try and keep sync with the flight controller
 log.info("Starting time synchronisation with flight controller")
@@ -596,7 +1259,9 @@ tracktime.debug = False
 
 # Perform the initial sync with the flight controller.  This blocks until the sync is complete and good enough.
 while True:
+    printNoLF("Syncing time...")
     tracktime.initial_sync()
+    print("ok")
     if not tracktime.delta:
         log.warning("Timesync not supported by flight controller. THIS CAN LEAD TO DANGEROUS AND UNPREDICTABLE BEHAVIOUR.")
         break
@@ -658,6 +1323,7 @@ if args.simulator:
         craft.vehicle.parameters['RNGFND_MAX_CM'] = 4000
         craft.vehicle.parameters['RNGFND_PIN'] = 0
         craft.vehicle.parameters['RNGFND_SCALING'] = 12.12
+
     # Take off to 25m altitude and start landing if not already armed
     if not craft.vehicle.armed:
         craft.arm_and_takeoff(100)
@@ -665,19 +1331,38 @@ if args.simulator:
         log.info("Starting landing...")
         craft.vehicle.mode = VehicleMode("LAND")
 
-# Clear the vision tracking queue, we don't want to blast mavlink messages for everything stacked up
-while True:
-    line = track_targets.reader.readline()
-    if not line:
-        break
-    elif not search("^target:", line):
-        if search("^error:", line):
-            log.error("track_targets: "+sub("^error:","",line))
-        # Make sure to catch and process initcomp if it's in this initial queue
-        elif search("initcomp", line):
-            track_targets.processline(line)
-        else:
-            log.info("track_targets: "+line)
+# If we loose the target, move back to initial altitude
+craft.initialAltitude = craft.vehicle.location.global_relative_frame.alt
+craft.maxLandingAltitude = 5 # TODO: Get from config file
+craft.lastDetection = 0
+craft.outV = np.array([0,0])
+craft.stats = Stats()
+print("Initial altitude: " + str(craft.initialAltitude))
+
+track_targets.waitImage()
+
+print("Take off")
+if True:
+    targetAltitude = 1
+    craft.vehicle.simple_takeoff(targetAltitude)
+    while True:
+        print("Altitude: " + str(craft.vehicle.location.global_relative_frame.alt))
+        if craft.vehicle.location.global_relative_frame.alt >= targetAltitude * 0.90:
+            print("Reached target altitude")
+            break
+        sleep(1)
+
+    craft.gimbalIsDown = False
+
+if False:
+    fps = 15
+    print("Rotating")
+    for i in range(fps * 10):
+        craft.move(0, 0, 0, 50)
+        sleep(1.0 / 15)
+
+print("Start actions")
+craft.startActions()
 
 ### --------------------------------
 ### Main Loop
@@ -685,8 +1370,14 @@ while True:
 ### Listen for incoming cv tracking results
 ### --------------------------------
 log.info("Entering main tracking loop")
+if args.controlprocessing:
+    print("Waiting LAND mode...")
 loop_counter = 0
-while True:
+lastMsgTime = 0
+
+doExit = False
+
+while not doExit:
     # Update timesync
     tracktime.update()
 
@@ -711,6 +1402,12 @@ while True:
         # Add a short 100ms sleep to slow down the loop, otherwise it consumes 100% cpu.
         log.debug("Main loop queue read empty, sleeping for a few ms")
         sleep(0.1)
+
+    now = monotonic_time()
+    elapsedSec = (now - craft.lastDetection) / 1e+9
+    if elapsedSec > 1:
+        # Target timeout
+        craft.processState(now, False)
 
     if args.simulator and not craft.vehicle.armed and not track_targets.shutdown:
         log.info("Landed")
